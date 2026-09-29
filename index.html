@@ -365,6 +365,58 @@ input[type="date"].bf-field { width: auto; min-width: 170px; display: inline-blo
   80% { transform: translateX(3px); }
 }
 
+/* ---------- batch B2: settings + backup ---------- */
+.bf-header-right { display: flex; align-items: center; gap: 4px; }
+.bf-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; min-width: 44px; padding: 0;
+  border: 0; border-radius: 14px; background: transparent; color: var(--bf-ink);
+  cursor: pointer;
+}
+.bf-icon-btn svg { width: 24px; height: 24px; display: block; }
+.bf-icon-btn:active { background: var(--bf-ice); }
+.bf-icon-btn:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 2px; }
+/* Toasts float above an open sheet so import/export results are visible. */
+.bf-toast-layer { z-index: 60; }
+.bf-set-head {
+  margin: 22px 0 8px; font-family: var(--bf-font);
+  font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--bf-muted);
+}
+.bf-set-row { display: flex; gap: 10px; }
+.bf-set-row .bf-btn { flex: 1 1 0; }
+.bf-set-tip { margin: 10px 0 0; }
+.bf-set-signout { margin-top: 24px; }
+.bf-checks { border-top: 2px solid var(--bf-line); }
+.bf-check {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 48px; padding: 4px 2px;
+  border-bottom: 2px solid var(--bf-line);
+  font-weight: 800; cursor: pointer;
+}
+.bf-check input { width: 22px; height: 22px; margin: 0; flex: 0 0 auto; accent-color: var(--bf-blue); }
+.bf-check-all { font-weight: 900; }
+.bf-mode-cards { display: flex; flex-direction: column; gap: 10px; }
+.bf-mode-card {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px; border: 2.5px solid var(--bf-line); border-radius: 16px;
+  background: var(--bf-card); cursor: pointer;
+}
+.bf-mode-card.is-on { border-color: var(--bf-ink); background: var(--bf-goldsoft); }
+.bf-mode-card input { width: 22px; height: 22px; margin: 2px 0 0; flex: 0 0 auto; accent-color: var(--bf-ink); }
+.bf-mode-text { display: flex; flex-direction: column; gap: 2px; }
+.bf-mode-text strong { font-weight: 900; font-size: 16px; }
+.bf-mode-desc { font-size: 14px; font-weight: 700; color: var(--bf-muted); }
+.bf-result {
+  padding: 12px 14px; border-radius: 14px;
+  background: var(--bf-ice); color: var(--bf-ink);
+  font-weight: 800; font-size: 15px; white-space: pre-line; overflow-wrap: anywhere;
+}
+.bf-result-err { background: var(--bf-peach); color: var(--bf-hot); }
+.bf-file-btn { position: relative; align-self: flex-start; }
+.bf-file-btn:focus-within { outline: 3px solid var(--bf-blue); outline-offset: 3px; }
+.bf-json { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; font-weight: 500; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -410,7 +462,10 @@ input[type="date"].bf-field { width: auto; min-width: 170px; display: inline-blo
         <svg class="bf-logo" width="30" height="26" viewBox="0 0 30 26" aria-hidden="true"><path d="M3 22 L5 6 L11 13 L15 3 L19 13 L25 6 L27 22 Z" fill="#E9B949" stroke="#1D3447" stroke-width="2.5" stroke-linejoin="round"/></svg>
         <h1 id="bf-title" class="bf-title">Boss Fridge</h1>
       </div>
-      <button type="button" id="bf-avatars" class="bf-avatars-btn" aria-label="Account and household members"></button>
+      <div class="bf-header-right">
+        <button type="button" id="bf-avatars" class="bf-avatars-btn" aria-label="Account and household members"></button>
+        <button type="button" id="bf-settings-btn" class="bf-icon-btn" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+      </div>
     </div>
   </header>
 
@@ -479,7 +534,7 @@ input[type="date"].bf-field { width: auto; min-width: 170px; display: inline-blo
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v2';
+var BF_VERSION = 'bf-v3';
 
 var BF = {
   sb: null,
@@ -1595,6 +1650,824 @@ BF.openGrocerySheet = function (id) {
     box.appendChild(form);
   });
 };
+
+/* ===================== batch B2: settings + backup ===================== */
+BF.BACKUP = [
+  { label: 'Fridge', short: 'fridge', slug: 'fridge', tables: ['bf_items'] },
+  { label: 'Shopping list', short: 'shopping', slug: 'shopping', tables: ['bf_groceries'] },
+  { label: 'Food library', short: 'dishes', slug: 'library', tables: ['bf_dishes'] },
+  { label: 'Eaten log', short: 'eaten', slug: 'eaten', tables: ['bf_eaten'] },
+  { label: 'Wheel lists', short: 'wheel lists', slug: 'wheel', tables: ['bf_wheel_lists'] },
+  { label: 'Tomorrow board', short: 'board', slug: 'board', tables: ['bf_board', 'bf_board_votes'] },
+  { label: 'Swipe rounds', short: 'swipe', slug: 'swipe', tables: ['bf_swipe_rounds', 'bf_swipes'] }
+];
+BF.COLUMNS = {
+  bf_items: ['id', 'name', 'count', 'expiry', 'location', 'dish_id', 'notes', 'ready', 'leftover', 'added_by', 'added_at'],
+  bf_groceries: ['id', 'name', 'notes', 'status', 'added_by', 'added_at', 'bought_by', 'bought_at'],
+  bf_dishes: ['id', 'name', 'kind', 'ingredients', 'favourite', 'notes', 'created_by', 'created_at'],
+  bf_eaten: ['id', 'dish_id', 'item_name', 'eaten_by', 'eaten_at'],
+  bf_wheel_lists: ['id', 'name', 'options', 'created_by'],
+  bf_board: ['id', 'for_date', 'dish_id', 'label', 'nominated_by', 'created_at'],
+  bf_board_votes: ['board_id', 'email', 'emoji'],
+  bf_swipe_rounds: ['id', 'source', 'options', 'status', 'match_label', 'created_by', 'created_at'],
+  bf_swipes: ['round_id', 'email', 'option_index', 'yes']
+};
+BF.KEYS = { bf_board_votes: ['board_id', 'email'], bf_swipes: ['round_id', 'email', 'option_index'] };
+BF.WRITE_ORDER = ['bf_dishes', 'bf_items', 'bf_groceries', 'bf_eaten', 'bf_wheel_lists', 'bf_board', 'bf_board_votes', 'bf_swipe_rounds', 'bf_swipes'];
+BF.DELETE_ORDER = BF.WRITE_ORDER.slice().reverse();
+BF.NAME_TABLES = ['bf_items', 'bf_groceries', 'bf_dishes', 'bf_wheel_lists'];
+BF.TS_COL = { bf_items: 'added_at', bf_groceries: 'added_at', bf_dishes: 'created_at' };
+BF.CHUNK = 500;
+
+/* ---------- pure helpers (no network, no DOM) ---------- */
+BF.keyCols = function (t) { return BF.KEYS[t] || ['id']; };
+BF.sectionOf = function (t) {
+  return BF.BACKUP.filter(function (s) { return s.tables.indexOf(t) >= 0; })[0] || null;
+};
+BF.sectionsFor = function (labels) {
+  return BF.BACKUP.filter(function (s) { return (labels || []).indexOf(s.label) >= 0; });
+};
+BF.localIso = function (d) {
+  var off = -d.getTimezoneOffset();
+  var a = Math.abs(off);
+  return BF.ymd(d) + 'T' + BF.pad2(d.getHours()) + ':' + BF.pad2(d.getMinutes()) + ':' + BF.pad2(d.getSeconds()) +
+    (off >= 0 ? '+' : '-') + BF.pad2(Math.floor(a / 60)) + ':' + BF.pad2(a % 60);
+};
+BF.fileStamp = function (d) { return BF.ymd(d) + '-' + BF.pad2(d.getHours()) + BF.pad2(d.getMinutes()); };
+BF.isRowObject = function (r) { return !!r && typeof r === 'object' && !Array.isArray(r); };
+
+/* Parse pasted/loaded text. Returns { error } or { tables, sections, members, unknownTables, meta }. */
+BF.parseBackup = function (text) {
+  var obj;
+  try { obj = JSON.parse(String(text == null ? '' : text).trim()); } catch (e) { return { error: 'That isn\'t valid JSON.' }; }
+  var none = { error: 'No Boss Fridge data found in that JSON.' };
+  if (!BF.isRowObject(obj)) return none;
+  var full = Object.prototype.hasOwnProperty.call(obj, 'app');
+  if (full && (obj.app !== 'boss-fridge' || obj.format !== 1)) return { error: 'That isn\'t a Boss Fridge backup.' };
+  var src = full ? obj.tables : obj;
+  if (!BF.isRowObject(src)) return none;
+  var tables = {};
+  var unknown = [];
+  var members = false;
+  Object.keys(src).forEach(function (k) {
+    if (k === 'bf_members') members = true;
+    else if (BF.COLUMNS[k]) tables[k] = src[k];
+    else unknown.push(k);
+  });
+  var names = Object.keys(tables);
+  if (!names.length) return none;
+  for (var i = 0; i < names.length; i++) {
+    if (!Array.isArray(tables[names[i]])) return { error: names[i] + ' should be a list of rows.' };
+  }
+  var sections = BF.BACKUP.filter(function (s) {
+    return s.tables.some(function (t) { return tables[t]; });
+  }).map(function (s) {
+    return {
+      label: s.label,
+      rows: s.tables.reduce(function (n, t) { return n + (tables[t] ? tables[t].length : 0); }, 0)
+    };
+  });
+  return {
+    tables: tables,
+    sections: sections,
+    members: members,
+    unknownTables: unknown,
+    meta: full ? { exported_at: obj.exported_at || null, exported_by: obj.exported_by || null } : null
+  };
+};
+
+/* Returns a reason string if the (column-filtered) row can't be written, else null. May tidy the row. */
+BF.rowProblem = function (t, r) {
+  if (BF.NAME_TABLES.indexOf(t) >= 0) {
+    if (typeof r.name !== 'string' || !r.name.trim()) return 'missing name';
+    r.name = r.name.trim();
+  }
+  if (t === 'bf_items') {
+    if (r.location != null && ['fridge', 'freezer', 'storage'].indexOf(r.location) < 0) return 'bad location';
+    if (r.count != null && !(typeof r.count === 'number' && Math.floor(r.count) === r.count && r.count >= 0)) return 'bad count';
+    if (r.expiry != null && !(typeof r.expiry === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.expiry))) return 'bad expiry';
+  }
+  if (t === 'bf_groceries') {
+    if (r.status == null) delete r.status;
+    else if (r.status !== 'to_buy' && r.status !== 'bought') return 'bad status';
+  }
+  if (t === 'bf_dishes') {
+    if (r.kind == null) delete r.kind;
+    else if (['ready', 'home', 'takeout'].indexOf(r.kind) < 0) return 'bad kind';
+    if (r.ingredients == null) delete r.ingredients;
+    else if (!Array.isArray(r.ingredients) || !r.ingredients.every(function (x) { return typeof x === 'string'; })) return 'bad ingredients';
+  }
+  if (t === 'bf_board' && (r.label == null || r.label === '' || r.for_date == null || r.for_date === '')) return 'missing label or date';
+  if (BF.KEYS[t] && BF.KEYS[t].some(function (c) { return r[c] == null || r[c] === ''; })) return 'missing key';
+  return null;
+};
+
+/* Keep allowed columns, validate. Returns { rows, skipped: {reason: n}, dropped: [field] }. */
+BF.cleanRows = function (t, rows) {
+  var cols = BF.COLUMNS[t];
+  var out = [];
+  var skipped = {};
+  var dropped = {};
+  (rows || []).forEach(function (raw) {
+    if (!BF.isRowObject(raw)) { skipped['not a row'] = (skipped['not a row'] || 0) + 1; return; }
+    var r = {};
+    Object.keys(raw).forEach(function (k) {
+      if (cols.indexOf(k) >= 0) r[k] = raw[k];
+      else dropped[k] = true;
+    });
+    var why = BF.rowProblem(t, r);
+    if (why) { skipped[why] = (skipped[why] || 0) + 1; return; }
+    out.push(r);
+  });
+  return { rows: out, skipped: skipped, dropped: Object.keys(dropped) };
+};
+
+/* Null any dish_id not in the set of dish ids that will exist. Returns how many were cleared. */
+BF.clearDishLinks = function (tables, dishIds) {
+  var n = 0;
+  ['bf_items', 'bf_eaten', 'bf_board'].forEach(function (t) {
+    (tables[t] || []).forEach(function (r) {
+      if (r.dish_id != null && !dishIds.has(String(r.dish_id))) { r.dish_id = null; n++; }
+    });
+  });
+  return n;
+};
+
+/* Column defaults for rows being inserted ("missing means ..."). */
+BF.withDefaults = function (t, r) {
+  var o = Object.assign({}, r);
+  if (t === 'bf_groceries' && o.status == null) o.status = 'to_buy';
+  if (t === 'bf_dishes') {
+    if (o.kind == null) o.kind = 'home';
+    if (o.ingredients == null) o.ingredients = [];
+  }
+  return o;
+};
+
+BF.nameKey = function (t, r) {
+  var k = String(r.name == null ? '' : r.name).trim().toLowerCase();
+  if (t === 'bf_groceries') k += '\n' + (r.status || 'to_buy');
+  return k;
+};
+
+/* Merge plan for an id table: { updates: [{id, fields}], inserts: [row], unchanged }. */
+BF.planMerge = function (t, rows, existing) {
+  var plan = { updates: [], inserts: [], unchanged: 0 };
+  var byId = {};
+  (existing || []).forEach(function (e) { byId[String(e.id)] = e; });
+  var byName = null;
+  if (BF.NAME_TABLES.indexOf(t) >= 0) {
+    byName = {};
+    var ts = BF.TS_COL[t];
+    (existing || []).forEach(function (e) {
+      if (e.name == null) return;
+      var k = BF.nameKey(t, e);
+      var cur = byName[k];
+      if (!cur || !ts || String(e[ts] || '') >= String(cur[ts] || '')) byName[k] = e;
+    });
+  }
+  var pending = {};
+  rows.forEach(function (r) {
+    var f;
+    if (r.id != null) {
+      if (byId[String(r.id)]) {
+        f = Object.assign({}, r);
+        delete f.id;
+        if (Object.keys(f).length) plan.updates.push({ id: r.id, fields: f });
+        else plan.unchanged++;
+      } else {
+        plan.inserts.push(r);
+      }
+      return;
+    }
+    if (!byName) { plan.inserts.push(r); return; }
+    var k = BF.nameKey(t, r);
+    var hit = byName[k];
+    if (hit) {
+      f = Object.assign({}, r);
+      delete f.name;
+      if (t === 'bf_groceries') delete f.status;
+      if (Object.keys(f).length) plan.updates.push({ id: hit.id, fields: f });
+      else plan.unchanged++;
+      return;
+    }
+    if (pending[k]) {
+      // Same new name twice in the file: fold the later fields into the first row, keep its spelling.
+      f = Object.assign({}, r);
+      delete f.name;
+      Object.assign(pending[k], f);
+      return;
+    }
+    pending[k] = r;
+    plan.inserts.push(r);
+  });
+  return plan;
+};
+
+BF.importSummary = function (res) {
+  var lines = [];
+  var parts = res.order.map(function (label) {
+    var s = res.sections[label];
+    var short = BF.sectionOf(s.tables[0]).short;
+    if (res.mode === 'restore') return s.added + ' ' + short;
+    var bits = [];
+    if (s.added) bits.push(s.added + ' added');
+    if (s.updated) bits.push(s.updated + ' updated');
+    if (s.unchanged) bits.push(s.unchanged + ' already up to date');
+    return (s.added + s.updated + s.unchanged) + ' ' + short + (bits.length ? ' (' + bits.join(', ') + ')' : '');
+  });
+  lines.push((res.mode === 'restore' ? 'Restored: ' : 'Merged: ') + (parts.join(', ') || 'nothing') + '.');
+  var why = Object.keys(res.skipped);
+  if (why.length) {
+    var total = why.reduce(function (n, k) { return n + res.skipped[k]; }, 0);
+    lines.push('Skipped ' + total + ' (' + why.map(function (k) { return res.skipped[k] + ' ' + k; }).join(', ') + ').');
+  }
+  if (res.linksCleared) lines.push(BF.plural(res.linksCleared, 'dish link', 'dish links') + ' cleared.');
+  if (res.dropped.length) lines.push('Ignored unknown fields: ' + res.dropped.join(', ') + '.');
+  if (res.mode === 'restore') lines.push('This can\'t be undone except by importing the backup.');
+  return lines.join('\n');
+};
+
+BF.exportSummary = function (counts) {
+  var parts = counts.filter(function (c) { return c.n > 0; }).map(function (c) { return c.n + ' ' + c.short; });
+  return parts.length ? 'Exported: ' + parts.join(', ') : 'Exported (those sections are empty)';
+};
+
+/* ---------- engine (network, no DOM) ---------- */
+BF.tableError = function (t, err, written, status) {
+  var e = new Error((err && err.message) || String(err));
+  e.table = t;
+  e.written = written || 0;
+  e.network = BF.isNetworkError(err, status == null ? (err && err.status) : status);
+  return e;
+};
+
+BF.fetchAll = async function (t, cols) {
+  var out = [];
+  var from = 0;
+  var order = t === 'bf_members' ? 'email' : BF.keyCols(t)[0];
+  for (;;) {
+    var r;
+    try {
+      r = await BF.sb.from(t).select(cols || '*').order(order, { ascending: true }).range(from, from + 999);
+    } catch (e) {
+      throw BF.tableError(t, e, 0, 0);
+    }
+    if (r.error) throw BF.tableError(t, r.error, 0, r.status);
+    var page = r.data || [];
+    out = out.concat(page);
+    if (page.length < 1000) return out;
+    from += 1000;
+  }
+};
+
+/* Fetch the chosen sections (plus members). Returns { obj, json, filename, counts }. */
+BF.buildExport = async function (sectionLabels) {
+  var secs = BF.sectionsFor(sectionLabels);
+  var tables = {};
+  for (var i = 0; i < secs.length; i++) {
+    for (var j = 0; j < secs[i].tables.length; j++) {
+      var t = secs[i].tables[j];
+      tables[t] = await BF.fetchAll(t);
+    }
+  }
+  try { tables.bf_members = await BF.fetchAll('bf_members'); } catch (e) {
+    if (e.network) throw e;
+    tables.bf_members = [];
+  }
+  var now = new Date();
+  var obj = {
+    app: 'boss-fridge',
+    format: 1,
+    exported_at: BF.localIso(now),
+    exported_by: BF.myEmail(),
+    version: BF_VERSION,
+    sections: secs.map(function (s) { return s.label; }),
+    tables: tables
+  };
+  var filename = secs.length === BF.BACKUP.length
+    ? 'boss-fridge-backup-' + BF.fileStamp(now) + '.json'
+    : 'boss-fridge-' + BF.fileStamp(now) + '-' + secs.map(function (s) { return s.slug; }).join('-') + '.json';
+  var counts = secs.map(function (s) {
+    return { short: s.short, n: s.tables.reduce(function (n, x) { return n + tables[x].length; }, 0) };
+  });
+  return { obj: obj, json: JSON.stringify(obj, null, 2), filename: filename, counts: counts };
+};
+
+/* Import parsed data into the chosen sections. mode: 'merge' | 'restore'. Throws BF.tableError on the first failure. */
+BF.importData = async function (parsed, sectionLabels, mode, onProgress) {
+  var say = typeof onProgress === 'function' ? onProgress : function () {};
+  var secs = BF.sectionsFor(sectionLabels);
+  var tables = BF.WRITE_ORDER.filter(function (t) {
+    return parsed.tables[t] && secs.some(function (s) { return s.tables.indexOf(t) >= 0; });
+  });
+  var res = { mode: mode, order: [], sections: {}, skipped: {}, dropped: [], linksCleared: 0, written: 0 };
+  var dropped = {};
+  var clean = {};
+  tables.forEach(function (t) {
+    var c = BF.cleanRows(t, parsed.tables[t]);
+    clean[t] = c.rows;
+    Object.keys(c.skipped).forEach(function (k) { res.skipped[k] = (res.skipped[k] || 0) + c.skipped[k]; });
+    c.dropped.forEach(function (k) { dropped[k] = true; });
+    var label = BF.sectionOf(t).label;
+    if (!res.sections[label]) {
+      res.sections[label] = { tables: [t], added: 0, updated: 0, unchanged: 0 };
+    } else {
+      res.sections[label].tables.push(t);
+    }
+  });
+  res.order = BF.BACKUP.map(function (s) { return s.label; }).filter(function (l) { return res.sections[l]; });
+  res.dropped = Object.keys(dropped);
+
+  // Dish links: ids already in the DB (unless Restore replaces the library) plus imported dish ids.
+  var dishIds = new Set();
+  if (!(mode === 'restore' && clean.bf_dishes)) {
+    (await BF.fetchAll('bf_dishes', 'id')).forEach(function (d) { dishIds.add(String(d.id)); });
+  }
+  (clean.bf_dishes || []).forEach(function (d) { if (d.id != null) dishIds.add(String(d.id)); });
+  res.linksCleared = BF.clearDishLinks(clean, dishIds);
+
+  var shortOf = function (t) { return BF.sectionOf(t).short; };
+  var statOf = function (t) { return res.sections[BF.sectionOf(t).label]; };
+  var insertAll = async function (t, rows) {
+    for (var i = 0; i < rows.length; i += BF.CHUNK) {
+      var chunk = rows.slice(i, i + BF.CHUNK).map(function (r) { return BF.withDefaults(t, r); });
+      var r;
+      try {
+        r = await BF.sb.from(t).insert(chunk, { defaultToNull: false });
+      } catch (e) { throw BF.tableError(t, e, res.written, 0); }
+      if (r.error) throw BF.tableError(t, r.error, res.written, r.status);
+      res.written += chunk.length;
+      statOf(t).added += chunk.length;
+    }
+  };
+
+  if (mode === 'restore') {
+    var dels = BF.DELETE_ORDER.filter(function (t) { return tables.indexOf(t) >= 0; });
+    for (var d = 0; d < dels.length; d++) {
+      say('Clearing ' + shortOf(dels[d]) + '...');
+      var dr;
+      try {
+        dr = await BF.sb.from(dels[d]).delete().not(BF.keyCols(dels[d])[0], 'is', null);
+      } catch (e) { throw BF.tableError(dels[d], e, res.written, 0); }
+      if (dr.error) throw BF.tableError(dels[d], dr.error, res.written, dr.status);
+    }
+    for (var w = 0; w < tables.length; w++) {
+      say('Writing ' + shortOf(tables[w]) + '...');
+      await insertAll(tables[w], clean[tables[w]]);
+    }
+    return res;
+  }
+
+  for (var m = 0; m < tables.length; m++) {
+    var t = tables[m];
+    var rows = clean[t];
+    say('Writing ' + shortOf(t) + '...');
+    if (BF.KEYS[t]) {
+      var keys = BF.KEYS[t];
+      var keyOf = function (r) { return keys.map(function (c) { return String(r[c]); }).join('\n'); };
+      var have = {};
+      (await BF.fetchAll(t, keys.join(','))).forEach(function (r) { have[keyOf(r)] = true; });
+      for (var i = 0; i < rows.length; i += BF.CHUNK) {
+        var chunk = rows.slice(i, i + BF.CHUNK);
+        var ur;
+        try {
+          ur = await BF.sb.from(t).upsert(chunk, { onConflict: keys.join(',') });
+        } catch (e) { throw BF.tableError(t, e, res.written, 0); }
+        if (ur.error) throw BF.tableError(t, ur.error, res.written, ur.status);
+        res.written += chunk.length;
+        chunk.forEach(function (r) {
+          if (have[keyOf(r)]) statOf(t).updated++;
+          else { statOf(t).added++; have[keyOf(r)] = true; }
+        });
+      }
+      continue;
+    }
+    var cols = ['id'];
+    if (BF.NAME_TABLES.indexOf(t) >= 0) cols.push('name');
+    if (t === 'bf_groceries') cols.push('status');
+    if (BF.TS_COL[t]) cols.push(BF.TS_COL[t]);
+    var plan = BF.planMerge(t, rows, await BF.fetchAll(t, cols.join(',')));
+    statOf(t).unchanged += plan.unchanged;
+    for (var u = 0; u < plan.updates.length; u++) {
+      var up;
+      try {
+        up = await BF.sb.from(t).update(plan.updates[u].fields).eq('id', plan.updates[u].id);
+      } catch (e) { throw BF.tableError(t, e, res.written, 0); }
+      if (up.error) throw BF.tableError(t, up.error, res.written, up.status);
+      res.written++;
+      statOf(t).updated++;
+    }
+    await insertAll(t, plan.inserts);
+  }
+  return res;
+};
+
+/* ---------- B2 UI ---------- */
+BF.saveFile = async function (json, filename) {
+  var file = null;
+  try { file = new File([json], filename, { type: 'application/json' }); } catch (e) { file = null; }
+  if (file && navigator.canShare && navigator.share) {
+    var can = false;
+    try { can = navigator.canShare({ files: [file] }); } catch (e) { can = false; }
+    if (can) {
+      try {
+        await navigator.share({ files: [file], title: filename });
+        return 'shared';
+      } catch (e) {
+        if (e && e.name === 'AbortError') return 'cancelled';
+        // NotAllowedError etc. (e.g. the tap "expired" while fetching): fall back to a download.
+      }
+    }
+  }
+  var blob = file || new Blob([json], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+  return 'downloaded';
+};
+
+BF.copyText = async function (text) {
+  try {
+    if (!navigator.clipboard || !navigator.clipboard.writeText) return false;
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    return false;
+  }
+};
+
+/* Export chosen sections. how: 'file' (default: share sheet or download) | 'none'.
+   Returns the JSON string, or null if the user cancelled the share sheet. */
+BF.exportData = async function (sectionLabels, how) {
+  var ex = await BF.buildExport(sectionLabels);
+  if (how !== 'none') {
+    var done = await BF.saveFile(ex.json, ex.filename);
+    if (done === 'cancelled') return null;
+  }
+  BF.toast(BF.exportSummary(ex.counts));
+  return ex.json;
+};
+
+BF.exportErrorText = function (e) {
+  if (e && e.network) return 'No connection. Try again when you\'re back online.';
+  return 'Export failed' + (e && e.table ? ' at ' + e.table : '') + ': ' + ((e && e.message) || 'unknown error');
+};
+
+BF.importErrorText = function (e, mode) {
+  var msg = 'Stopped at ' + ((e && e.table) || 'an unknown table') + ': ' + ((e && e.message) || 'unknown error') + '.\n' +
+    BF.plural((e && e.written) || 0, 'row was', 'rows were') + ' written before it.';
+  if (mode === 'restore') msg += '\nYour backup file has the old data \u2013 import it with Restore to put things back.';
+  return msg;
+};
+
+BF.setHead = function (text) { return BF.el('h3', 'bf-set-head', text); };
+
+BF.checkRow = function (text, checked, onChange, extraClass) {
+  var l = BF.el('label', 'bf-check' + (extraClass ? ' ' + extraClass : ''));
+  var i = document.createElement('input');
+  i.type = 'checkbox';
+  i.checked = !!checked;
+  i.addEventListener('change', function () { onChange(i.checked); });
+  l.appendChild(i);
+  l.appendChild(BF.el('span', null, text));
+  return { row: l, input: i };
+};
+
+BF.openSettings = function () {
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Settings'));
+
+    box.appendChild(BF.setHead('Account'));
+    var who = BF.el('p', 'bf-sheet-who', 'Signed in as ');
+    who.appendChild(BF.el('strong', null, BF.myEmail() || ''));
+    box.appendChild(who);
+    var list = BF.el('ul', 'bf-member-list');
+    list.setAttribute('aria-label', 'Household members');
+    BF.members.forEach(function (m) {
+      var li = BF.el('li', 'bf-member');
+      var av = BF.el('span', 'bf-avatar', m.emoji || BF.firstChar(m.display_name || m.email));
+      av.setAttribute('aria-hidden', 'true');
+      li.appendChild(av);
+      li.appendChild(BF.el('span', null, m.display_name || m.email || ''));
+      if (m === BF.me) li.appendChild(BF.el('span', 'bf-member-you', '(you)'));
+      list.appendChild(li);
+    });
+    box.appendChild(list);
+
+    box.appendChild(BF.setHead('Backup'));
+    var row = BF.el('div', 'bf-set-row');
+    row.appendChild(BF.button('Export', '', BF.openExport));
+    row.appendChild(BF.button('Import', '', BF.openImport));
+    box.appendChild(row);
+    box.appendChild(BF.el('p', 'bf-hint bf-set-tip', 'Tip: export, send the file to Claude to fix things, then import it back with Merge.'));
+
+    var out = BF.button('Sign out', 'bf-btn-wide bf-set-signout', BF.signOut);
+    box.appendChild(out);
+    box.appendChild(BF.el('p', 'bf-version', 'Version ' + BF_VERSION));
+  });
+};
+
+BF.openExport = function () {
+  var on = {};
+  BF.BACKUP.forEach(function (s) { on[s.label] = true; });
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Export'));
+    var form = BF.el('div', 'bf-form');
+    var checks = BF.el('div', 'bf-checks');
+    var chosen = function () { return BF.BACKUP.filter(function (s) { return on[s.label]; }).map(function (s) { return s.label; }); };
+    var boxes = [];
+    var copyBtn = BF.button('Copy for Claude', 'bf-btn-gold bf-btn-wide');
+    var saveBtn = BF.button('Save file', 'bf-btn-wide');
+    var status = BF.el('p', 'bf-hint');
+    status.setAttribute('role', 'status');
+    var ta = BF.input({ tag: 'textarea' });
+    ta.className = 'bf-field bf-json';
+    ta.readOnly = true;
+    ta.hidden = true;
+    ta.setAttribute('aria-label', 'Exported JSON');
+    var busy = false;
+    var sync = function () {
+      var n = chosen().length;
+      every.input.checked = n === BF.BACKUP.length;
+      every.input.indeterminate = n > 0 && n < BF.BACKUP.length;
+      copyBtn.disabled = saveBtn.disabled = busy || n === 0;
+    };
+    var every = BF.checkRow('Everything', true, function (v) {
+      BF.BACKUP.forEach(function (s) { on[s.label] = v; });
+      boxes.forEach(function (b) { b.checked = v; });
+      sync();
+    }, 'bf-check-all');
+    checks.appendChild(every.row);
+    BF.BACKUP.forEach(function (s) {
+      var c = BF.checkRow(s.label, true, function (v) { on[s.label] = v; sync(); });
+      boxes.push(c.input);
+      checks.appendChild(c.row);
+    });
+    form.appendChild(checks);
+
+    var go = async function (how) {
+      var labels = chosen();
+      if (!labels.length || busy) return;
+      busy = true;
+      sync();
+      ta.hidden = true;
+      status.textContent = 'Gathering everything...';
+      try {
+        var json = await BF.exportData(labels, how === 'copy' ? 'none' : 'file');
+        if (how === 'copy') {
+          if (await BF.copyText(json)) {
+            status.textContent = 'Copied. Paste it to Claude.';
+          } else {
+            ta.value = json;
+            ta.hidden = false;
+            ta.focus();
+            ta.select();
+            status.textContent = 'Select and copy the text below.';
+          }
+        } else {
+          status.textContent = json === null ? 'Cancelled.' : 'File ready.';
+        }
+      } catch (e) {
+        status.textContent = BF.exportErrorText(e);
+      }
+      busy = false;
+      sync();
+    };
+    copyBtn.addEventListener('click', function () { go('copy'); });
+    saveBtn.addEventListener('click', function () { go('file'); });
+    form.appendChild(copyBtn);
+    form.appendChild(saveBtn);
+    form.appendChild(status);
+    form.appendChild(ta);
+    box.appendChild(form);
+    sync();
+  });
+};
+
+BF.openImport = function () {
+  var state = { text: '', fileName: '' };
+
+  var step1 = function () {
+    BF.openSheet(function (box) {
+      box.appendChild(BF.el('h2', 'bf-sheet-title', 'Import'));
+      var form = BF.el('div', 'bf-form');
+
+      var pick = BF.el('label', 'bf-btn bf-file-btn');
+      pick.appendChild(BF.el('span', null, 'Choose JSON file'));
+      var fi = document.createElement('input');
+      fi.type = 'file';
+      fi.accept = '.json,application/json';
+      fi.className = 'bf-vh';
+      pick.appendChild(fi);
+      form.appendChild(pick);
+      var fname = BF.el('p', 'bf-hint', state.fileName);
+      fname.hidden = !state.fileName;
+      form.appendChild(fname);
+
+      form.appendChild(BF.el('p', 'bf-hint', 'or paste JSON below'));
+      var ta = BF.input({ tag: 'textarea', placeholder: 'Paste JSON here...', value: state.text });
+      ta.className = 'bf-field bf-json';
+      ta.spellcheck = false;
+      ta.setAttribute('aria-label', 'JSON to import');
+      form.appendChild(ta);
+
+      var err = BF.el('div', 'bf-result bf-result-err');
+      err.setAttribute('role', 'alert');
+      err.hidden = true;
+      var showErr = function (text) { err.textContent = text; err.hidden = false; };
+      ta.addEventListener('input', function () { err.hidden = true; });
+
+      fi.addEventListener('change', function () {
+        var f = fi.files && fi.files[0];
+        if (!f) return;
+        var rd = new FileReader();
+        rd.onload = function () {
+          ta.value = String(rd.result == null ? '' : rd.result);
+          state.fileName = f.name;
+          fname.textContent = f.name;
+          fname.hidden = false;
+          err.hidden = true;
+        };
+        rd.onerror = function () { showErr('Couldn\'t read that file.'); };
+        rd.readAsText(f);
+      });
+
+      form.appendChild(BF.button('Read', 'bf-btn-gold bf-btn-wide', function () {
+        state.text = ta.value;
+        var parsed = BF.parseBackup(ta.value);
+        if (parsed.error) { showErr(parsed.error); return; }
+        preview(parsed);
+      }));
+      form.appendChild(err);
+      box.appendChild(form);
+    });
+  };
+
+  var preview = function (parsed) {
+    var ticked = {};
+    parsed.sections.forEach(function (s) { ticked[s.label] = true; });
+    var mode = 'merge';
+    var backedUp = false;
+    var busy = false;
+    var dropped = {};
+    Object.keys(parsed.tables).forEach(function (t) {
+      BF.cleanRows(t, parsed.tables[t]).dropped.forEach(function (k) { dropped[k] = true; });
+    });
+
+    BF.openSheet(function (box) {
+      box.appendChild(BF.el('h2', 'bf-sheet-title', 'Import'));
+      var form = BF.el('div', 'bf-form');
+      if (parsed.meta && parsed.meta.exported_at) {
+        form.appendChild(BF.el('p', 'bf-hint', 'Backup from ' + parsed.meta.exported_at +
+          (parsed.meta.exported_by ? ' by ' + parsed.meta.exported_by : '')));
+      }
+
+      var pickWrap = BF.el('div');
+      pickWrap.appendChild(BF.el('h3', 'bf-set-head', 'What to import'));
+      var checks = BF.el('div', 'bf-checks');
+      var inputs = [];
+      parsed.sections.forEach(function (s) {
+        var text = s.label + ' \u2013 ' + BF.plural(s.rows, 'row', 'rows') + (s.rows === 0 ? ' (empty \u2013 Restore will clear it)' : '');
+        var c = BF.checkRow(text, true, function (v) {
+          ticked[s.label] = v;
+          backedUp = false;
+          renderActs();
+        });
+        inputs.push(c.input);
+        checks.appendChild(c.row);
+      });
+      pickWrap.appendChild(checks);
+      form.appendChild(pickWrap);
+
+      if (parsed.members) form.appendChild(BF.el('p', 'bf-hint', 'Members are ignored \u2013 they\'re changed in SQL.'));
+      if (Object.keys(dropped).length) form.appendChild(BF.el('p', 'bf-hint', 'Ignored unknown fields: ' + Object.keys(dropped).join(', ')));
+      if (parsed.unknownTables.length) form.appendChild(BF.el('p', 'bf-hint', 'Ignored unknown tables: ' + parsed.unknownTables.join(', ')));
+
+      var modeWrap = BF.el('div');
+      modeWrap.appendChild(BF.el('h3', 'bf-set-head', 'How'));
+      var cards = BF.el('div', 'bf-mode-cards');
+      cards.setAttribute('role', 'radiogroup');
+      cards.setAttribute('aria-label', 'Import mode');
+      var cardEls = [];
+      var card = function (value, title, desc) {
+        var l = BF.el('label', 'bf-mode-card');
+        var r = document.createElement('input');
+        r.type = 'radio';
+        r.name = 'bf-import-mode';
+        r.value = value;
+        r.checked = mode === value;
+        r.addEventListener('change', function () {
+          if (!r.checked) return;
+          mode = value;
+          cardEls.forEach(function (c) { c.l.classList.toggle('is-on', c.v === mode); });
+          renderActs();
+        });
+        l.appendChild(r);
+        var txt = BF.el('span', 'bf-mode-text');
+        txt.appendChild(BF.el('strong', null, title));
+        txt.appendChild(BF.el('span', 'bf-mode-desc', desc));
+        l.appendChild(txt);
+        l.classList.toggle('is-on', mode === value);
+        cardEls.push({ l: l, v: value, r: r });
+        cards.appendChild(l);
+      };
+      card('merge', 'Merge', 'Adds new rows and updates rows that already exist. Never deletes anything.');
+      card('restore', 'Restore', 'Replaces everything in the ticked sections with the file. What\'s there now is deleted.');
+      modeWrap.appendChild(cards);
+      form.appendChild(modeWrap);
+
+      var acts = BF.el('div', 'bf-form');
+      var progress = BF.el('p', 'bf-hint');
+      progress.setAttribute('role', 'status');
+      var result = BF.el('div', 'bf-result');
+      result.hidden = true;
+      form.appendChild(acts);
+      form.appendChild(progress);
+      form.appendChild(result);
+      box.appendChild(form);
+
+      var chosen = function () {
+        return parsed.sections.filter(function (s) { return ticked[s.label]; }).map(function (s) { return s.label; });
+      };
+      var lock = function (v) {
+        busy = v;
+        inputs.forEach(function (i) { i.disabled = v; });
+        cardEls.forEach(function (c) { c.r.disabled = v; });
+      };
+
+      var run = async function () {
+        var labels = chosen();
+        if (!labels.length) { progress.textContent = 'Tick at least one section.'; return; }
+        lock(true);
+        renderActs();
+        result.hidden = true;
+        try {
+          var res = await BF.importData(parsed, labels, mode, function (msg) { progress.textContent = msg; });
+          progress.textContent = '';
+          result.className = 'bf-result';
+          result.textContent = BF.importSummary(res);
+          result.hidden = false;
+          await BF.loadData();
+          BF.toast('Import done');
+          acts.replaceChildren(BF.button('Done', 'bf-btn-wide', BF.closeSheet));
+        } catch (e) {
+          progress.textContent = '';
+          result.className = 'bf-result bf-result-err';
+          result.textContent = BF.importErrorText(e, mode);
+          result.hidden = false;
+          lock(false);
+          renderActs();
+          BF.loadData();
+        }
+      };
+
+      var renderActs = function () {
+        acts.replaceChildren();
+        var none = chosen().length === 0;
+        if (mode === 'merge') {
+          var imp = BF.button('Import', 'bf-btn-gold bf-btn-wide', run);
+          imp.disabled = busy || none;
+          acts.appendChild(imp);
+          return;
+        }
+        var bk = BF.button(backedUp ? '\u2713 Backup saved' : 'Save a backup first', 'bf-btn-wide', async function () {
+          var labels = chosen();
+          if (!labels.length) return;
+          lock(true);
+          renderActs();
+          progress.textContent = 'Saving a backup...';
+          try {
+            var json = await BF.exportData(labels);
+            if (json === null) progress.textContent = 'Backup cancelled.';
+            else { backedUp = true; progress.textContent = ''; }
+          } catch (e) {
+            progress.textContent = BF.exportErrorText(e);
+          }
+          lock(false);
+          renderActs();
+        });
+        bk.disabled = busy || none;
+        acts.appendChild(bk);
+        var rep = BF.button('Replace now', 'bf-btn-gold bf-btn-wide', run);
+        rep.disabled = busy || none || !backedUp;
+        acts.appendChild(rep);
+      };
+      renderActs();
+    });
+  };
+
+  step1();
+};
+
+BF.openAccount = BF.openSettings;
+BF.$('bf-settings-btn').addEventListener('click', BF.openSettings);
 
 BF.init();
 </script>
