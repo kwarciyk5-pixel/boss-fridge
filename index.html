@@ -1,0 +1,729 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#DCEFFA" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#10202C" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Boss Fridge">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Boss Fridge</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&amp;family=Nunito:wght@500;700;800;900&amp;family=Noto+Sans+Myanmar:wght@400;700&amp;display=swap">
+<style>
+:root {
+  --bf-bg: #FBF5EA;
+  --bf-card: #FFFFFF;
+  --bf-ice: #DCEFFA;
+  --bf-ice2: #A9D3EC;
+  --bf-blue: #23699A;
+  --bf-onblue: #FFFFFF;
+  --bf-ink: #1D3447;
+  --bf-muted: #56697A;
+  --bf-gold: #E9B949;
+  --bf-goldsoft: #FFF1CC;
+  --bf-peach: #FBD9CB;
+  --bf-hot: #A63E1F;
+  --bf-line: #E6DCCB;
+  --bf-shadow: 0 3px 0 #1D3447;
+  --bf-shadow-press: 0 1px 0 #1D3447;
+  --bf-scrim: rgba(29,52,71,.38);
+  --bf-font: 'Nunito','Noto Sans Myanmar','Padauk',system-ui,sans-serif;
+  --bf-font-head: 'Fredoka','Noto Sans Myanmar','Padauk',sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bf-bg: #10202C;
+    --bf-card: #1A2E3D;
+    --bf-ice: #1F3E54;
+    --bf-ice2: #3B6E90;
+    --bf-blue: #8FCBEF;
+    --bf-onblue: #10202C;
+    --bf-ink: #EEF6FB;
+    --bf-muted: #A4B8C7;
+    --bf-gold: #E9B949;
+    --bf-goldsoft: #3A3220;
+    --bf-peach: #4A2A20;
+    --bf-hot: #FFB49A;
+    --bf-line: #2B4356;
+    --bf-shadow: 0 3px 0 #06111A;
+    --bf-shadow-press: 0 1px 0 #06111A;
+    --bf-scrim: rgba(0,0,0,.55);
+  }
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  background: var(--bf-bg);
+  color: var(--bf-ink);
+  font-family: var(--bf-font);
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+h1, h2, h3 { font-family: var(--bf-font-head); margin: 0; }
+button { font: inherit; color: inherit; }
+
+/* ---------- buttons & cards ---------- */
+.bf-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  min-height: 44px; min-width: 44px; padding: 0 18px;
+  border: 2.5px solid var(--bf-ink); border-radius: 14px;
+  background: var(--bf-card); color: var(--bf-ink);
+  font-family: var(--bf-font); font-weight: 800; font-size: 16px;
+  box-shadow: var(--bf-shadow);
+  cursor: pointer; user-select: none; -webkit-user-select: none;
+  transition: transform .08s ease, box-shadow .08s ease;
+}
+.bf-btn:active { transform: translateY(2px); box-shadow: var(--bf-shadow-press); }
+.bf-btn:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 3px; }
+.bf-btn:disabled { opacity: .6; cursor: default; }
+.bf-btn-primary { background: var(--bf-blue); color: var(--bf-onblue); }
+.bf-btn-gold { background: var(--bf-gold); color: #1D3447; }
+.bf-btn-wide { width: 100%; }
+.bf-card {
+  background: var(--bf-card);
+  border: 2.5px solid var(--bf-ink);
+  border-radius: 20px;
+  box-shadow: var(--bf-shadow);
+  padding: 18px;
+}
+
+/* ---------- full-screen states ---------- */
+.bf-screen-center {
+  min-height: 100vh; min-height: 100dvh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center;
+  padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
+}
+.bf-screen-center p { margin: 0; max-width: 320px; }
+#bf-screen-login { background: var(--bf-ice); }
+#bf-screen-notmember { background: var(--bf-bg); }
+#bf-screen-napping { background: #1D3447; color: #FBF5EA; }
+.bf-mascot { display: block; width: 170px; height: auto; }
+.bf-bob { animation: bf-bob 2.6s ease-in-out infinite; }
+@keyframes bf-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+.bf-brand { font-size: 44px; font-weight: 700; line-height: 1.05; margin: 18px 0 8px; }
+.bf-state-title { font-size: 30px; font-weight: 700; line-height: 1.1; margin: 18px 0 8px; }
+.bf-tagline { font-weight: 700; font-size: 17px; }
+.bf-google-btn {
+  margin-top: 28px; width: 100%; max-width: 300px; min-height: 56px;
+  background: #FFFFFF; color: #1D3447; font-size: 17px;
+}
+.bf-small { font-size: 13px; font-weight: 700; color: var(--bf-muted); margin-top: 14px !important; }
+.bf-login-msg { font-size: 14px; font-weight: 800; color: var(--bf-hot); margin-top: 10px !important; }
+.bf-state-btn { margin-top: 26px; min-width: 200px; }
+#bf-screen-napping p { color: #FBF5EA; opacity: .9; }
+.bf-zzz {
+  font-family: var(--bf-font-head); font-weight: 700; font-size: 26px; letter-spacing: 6px;
+  color: #A9D3EC; margin-bottom: -6px; padding-left: 70px;
+  animation: bf-float 3s ease-in-out infinite;
+}
+@keyframes bf-float { 0%, 100% { transform: translateY(0); opacity: .75; } 50% { transform: translateY(-6px); opacity: 1; } }
+
+/* ---------- app shell ---------- */
+#bf-screen-app {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
+  background: var(--bf-bg);
+}
+.bf-header {
+  flex: 0 0 auto;
+  padding: env(safe-area-inset-top) 16px 0;
+  background: var(--bf-bg);
+}
+.bf-header-inner {
+  height: 68px; max-width: 640px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.bf-header-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bf-logo { flex: 0 0 auto; display: block; }
+.bf-title {
+  font-size: 24px; font-weight: 700; line-height: 1.1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bf-avatars-btn {
+  flex: 0 0 auto;
+  display: flex; align-items: center;
+  min-height: 44px; min-width: 44px; padding: 0 2px 0 8px;
+  border: 0; background: transparent; cursor: pointer; border-radius: 22px;
+}
+.bf-avatars-btn:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 2px; }
+.bf-avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 2px solid var(--bf-ink); background: var(--bf-goldsoft);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 18px; line-height: 1; font-weight: 900;
+  margin-left: -6px; overflow: hidden;
+}
+.bf-avatar:first-child { margin-left: 0; }
+.bf-avatar:nth-child(3n+2) { background: var(--bf-ice); }
+.bf-avatar:nth-child(3n+3) { background: var(--bf-peach); }
+.bf-main {
+  flex: 1 1 auto;
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: 8px 16px 110px;
+  padding-bottom: calc(110px + env(safe-area-inset-bottom));
+}
+.bf-panel { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.bf-hero {
+  background: var(--bf-ice);
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.bf-hero .bf-mascot { width: 128px; flex: 0 0 auto; }
+.bf-bubble {
+  position: relative; flex: 1 1 140px;
+  background: var(--bf-card); border: 2.5px solid var(--bf-ink); border-radius: 18px;
+  padding: 12px 14px;
+  font-weight: 800; font-size: 17px; line-height: 1.35;
+}
+.bf-bubble::before {
+  content: ""; position: absolute; left: -9px; top: 50%;
+  width: 14px; height: 14px; margin-top: -7px;
+  background: var(--bf-card);
+  border-left: 2.5px solid var(--bf-ink); border-bottom: 2.5px solid var(--bf-ink);
+  transform: rotate(45deg);
+}
+.bf-soon { font-weight: 800; font-size: 17px; margin: 0; }
+.bf-soon-sub { margin: 4px 0 0; color: var(--bf-muted); font-size: 14px; font-weight: 700; }
+
+/* ---------- bottom nav ---------- */
+.bf-nav {
+  position: fixed; z-index: 20;
+  left: 12px; right: 12px;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  height: 70px; max-width: 616px; margin: 0 auto;
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;
+  padding: 6px;
+  background: var(--bf-card); border: 2.5px solid var(--bf-ink);
+  border-radius: 24px; box-shadow: var(--bf-shadow);
+}
+.bf-nav-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: 44px; min-width: 44px; padding: 0;
+  border: 0; border-radius: 18px;
+  background: transparent; color: var(--bf-muted);
+  cursor: pointer;
+}
+.bf-nav-btn svg { width: 24px; height: 24px; display: block; }
+.bf-nav-label { font-size: 11px; font-weight: 900; line-height: 1.1; }
+.bf-nav-btn[aria-current="page"] { background: var(--bf-ice); color: var(--bf-ink); }
+.bf-nav-btn:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 1px; }
+
+/* ---------- toast ---------- */
+.bf-toast-layer {
+  position: fixed; z-index: 40;
+  left: 16px; right: 16px;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  display: flex; justify-content: center;
+  pointer-events: none;
+}
+.bf-toast {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 12px;
+  max-width: 100%;
+  min-height: 48px; padding: 6px 6px 6px 20px;
+  border-radius: 999px;
+  background: #1D3447; color: #FBF5EA;
+  font-weight: 800; font-size: 15px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.25);
+  animation: bf-pop .18s ease-out;
+}
+.bf-toast-text { padding: 6px 14px 6px 0; }
+.bf-toast .bf-btn { flex: 0 0 auto; border-color: #FBF5EA; border-radius: 999px; box-shadow: none; }
+@keyframes bf-pop { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---------- sheet ---------- */
+.bf-scrim {
+  position: fixed; inset: 0; z-index: 50;
+  background: var(--bf-scrim);
+  animation: bf-fade .18s ease-out;
+}
+.bf-sheet {
+  position: fixed; z-index: 51;
+  left: 0; right: 0; bottom: 0;
+  max-width: 560px; margin: 0 auto;
+  max-height: 85vh; max-height: 85dvh; overflow-y: auto;
+  background: var(--bf-card); color: var(--bf-ink);
+  border: 2.5px solid var(--bf-ink); border-bottom: 0;
+  border-radius: 24px 24px 0 0;
+  padding: 10px 20px calc(24px + env(safe-area-inset-bottom));
+  animation: bf-up .22s ease-out;
+}
+.bf-sheet:focus { outline: none; }
+.bf-sheet-grip { width: 44px; height: 5px; border-radius: 3px; background: var(--bf-line); margin: 0 auto 14px; }
+@keyframes bf-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes bf-up { from { transform: translateY(40px); opacity: .4; } to { transform: none; opacity: 1; } }
+.bf-sheet-title { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
+.bf-sheet-who { margin: 0 0 14px; font-weight: 700; color: var(--bf-muted); word-break: break-word; }
+.bf-sheet-who strong { color: var(--bf-ink); font-weight: 900; }
+.bf-member-list { list-style: none; margin: 0 0 20px; padding: 0; border-top: 2px solid var(--bf-line); }
+.bf-member {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 52px; border-bottom: 2px solid var(--bf-line);
+  font-weight: 800;
+}
+.bf-member .bf-avatar { margin-left: 0; }
+.bf-member-you { color: var(--bf-muted); font-weight: 700; font-size: 14px; }
+.bf-version { text-align: center; color: var(--bf-muted); font-size: 12px; font-weight: 700; margin: 16px 0 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ===================== LOGIN ===================== -->
+<section id="bf-screen-login" class="bf-screen bf-screen-center" hidden>
+  <svg class="bf-mascot bf-bob" viewBox="0 0 150 190" aria-hidden="true"><rect x="22" y="40" width="106" height="140" rx="26" fill="#EAF6FD" stroke="#1D3447" stroke-width="5"/><line x1="22" y1="92" x2="128" y2="92" stroke="#1D3447" stroke-width="4"/><rect x="108" y="54" width="8" height="26" rx="4" fill="#1D3447"/><rect x="108" y="104" width="8" height="34" rx="4" fill="#1D3447"/><path d="M48 111 L62 115" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><path d="M98 111 L84 115" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><circle cx="56" cy="125" r="6.5" fill="#1D3447"/><circle cx="58" cy="123" r="2.2" fill="#fff"/><circle cx="90" cy="125" r="6.5" fill="#1D3447"/><circle cx="92" cy="123" r="2.2" fill="#fff"/><ellipse cx="45" cy="139" rx="8" ry="5" fill="#F6B89F"/><ellipse cx="101" cy="139" rx="8" ry="5" fill="#F6B89F"/><path d="M63 141 Q73 151 83 141" fill="none" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><path d="M40 56 l3 -8 l3 8 l8 3 l-8 3 l-3 8 l-3 -8 l-8 -3 z" fill="#fff"/><rect x="36" y="176" width="18" height="11" rx="4" fill="#1D3447"/><rect x="96" y="176" width="18" height="11" rx="4" fill="#1D3447"/><path d="M42 44 L49 12 L63 30 L75 4 L87 30 L101 12 L108 44 Z" fill="#E9B949" stroke="#1D3447" stroke-width="4.5" stroke-linejoin="round"/><circle cx="75" cy="30" r="5" fill="#F6B89F" stroke="#1D3447" stroke-width="3"/><circle cx="57" cy="34" r="3.5" fill="#A9D3EC" stroke="#1D3447" stroke-width="2.5"/><circle cx="93" cy="34" r="3.5" fill="#A9D3EC" stroke="#1D3447" stroke-width="2.5"/></svg>
+  <h1 class="bf-brand">Boss Fridge</h1>
+  <p class="bf-tagline">The fridge is the boss. You three are the party.</p>
+  <button type="button" id="bf-login-btn" class="bf-btn bf-google-btn">
+    <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+    <span>Continue with Google</span>
+  </button>
+  <p id="bf-login-msg" class="bf-login-msg" role="alert" hidden></p>
+  <p class="bf-small">Household members only</p>
+</section>
+
+<!-- ===================== NOT A MEMBER ===================== -->
+<section id="bf-screen-notmember" class="bf-screen bf-screen-center" hidden>
+  <svg class="bf-mascot" viewBox="0 0 150 190" aria-hidden="true"><rect x="22" y="40" width="106" height="140" rx="26" fill="#EAF6FD" stroke="#1D3447" stroke-width="5"/><line x1="22" y1="92" x2="128" y2="92" stroke="#1D3447" stroke-width="4"/><rect x="108" y="54" width="8" height="26" rx="4" fill="#1D3447"/><rect x="108" y="104" width="8" height="34" rx="4" fill="#1D3447"/><path d="M48 111 L62 115" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><path d="M98 111 L84 115" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><circle cx="56" cy="125" r="6.5" fill="#1D3447"/><circle cx="58" cy="123" r="2.2" fill="#fff"/><circle cx="90" cy="125" r="6.5" fill="#1D3447"/><circle cx="92" cy="123" r="2.2" fill="#fff"/><ellipse cx="45" cy="139" rx="8" ry="5" fill="#F6B89F"/><ellipse cx="101" cy="139" rx="8" ry="5" fill="#F6B89F"/><path d="M64 145 L82 145" fill="none" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><path d="M40 56 l3 -8 l3 8 l8 3 l-8 3 l-3 8 l-3 -8 l-8 -3 z" fill="#fff"/><rect x="36" y="176" width="18" height="11" rx="4" fill="#1D3447"/><rect x="96" y="176" width="18" height="11" rx="4" fill="#1D3447"/><path d="M42 44 L49 12 L63 30 L75 4 L87 30 L101 12 L108 44 Z" fill="#E9B949" stroke="#1D3447" stroke-width="4.5" stroke-linejoin="round"/><circle cx="75" cy="30" r="5" fill="#F6B89F" stroke="#1D3447" stroke-width="3"/><circle cx="57" cy="34" r="3.5" fill="#A9D3EC" stroke="#1D3447" stroke-width="2.5"/><circle cx="93" cy="34" r="3.5" fill="#A9D3EC" stroke="#1D3447" stroke-width="2.5"/></svg>
+  <h1 class="bf-state-title">Who goes there?</h1>
+  <p>This Google account isn't on the Boss's list. Ask Iris to add you.</p>
+  <button type="button" id="bf-other-account-btn" class="bf-btn bf-btn-primary bf-state-btn">Use another account</button>
+</section>
+
+<!-- ===================== NAPPING (offline) ===================== -->
+<section id="bf-screen-napping" class="bf-screen bf-screen-center" hidden>
+  <div class="bf-zzz" aria-hidden="true">z z z</div>
+  <svg class="bf-mascot" viewBox="0 0 150 190" aria-hidden="true"><rect x="22" y="40" width="106" height="140" rx="26" fill="#EAF6FD" stroke="#1D3447" stroke-width="5"/><line x1="22" y1="92" x2="128" y2="92" stroke="#1D3447" stroke-width="4"/><rect x="108" y="54" width="8" height="26" rx="4" fill="#1D3447"/><rect x="108" y="104" width="8" height="34" rx="4" fill="#1D3447"/><path d="M48 111 L62 115" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><path d="M98 111 L84 115" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><path d="M50 124 Q56 130 62 124" fill="none" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><path d="M84 124 Q90 130 96 124" fill="none" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><ellipse cx="45" cy="139" rx="8" ry="5" fill="#F6B89F"/><ellipse cx="101" cy="139" rx="8" ry="5" fill="#F6B89F"/><path d="M63 141 Q73 151 83 141" fill="none" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><path d="M40 56 l3 -8 l3 8 l8 3 l-8 3 l-3 8 l-3 -8 l-8 -3 z" fill="#fff"/><rect x="36" y="176" width="18" height="11" rx="4" fill="#1D3447"/><rect x="96" y="176" width="18" height="11" rx="4" fill="#1D3447"/><path d="M42 44 L49 12 L63 30 L75 4 L87 30 L101 12 L108 44 Z" fill="#E9B949" stroke="#1D3447" stroke-width="4.5" stroke-linejoin="round"/><circle cx="75" cy="30" r="5" fill="#F6B89F" stroke="#1D3447" stroke-width="3"/><circle cx="57" cy="34" r="3.5" fill="#A9D3EC" stroke="#1D3447" stroke-width="2.5"/><circle cx="93" cy="34" r="3.5" fill="#A9D3EC" stroke="#1D3447" stroke-width="2.5"/></svg>
+  <h1 class="bf-state-title">Boss Fridge is napping</h1>
+  <p>No connection right now. It'll wake up when you're back online.</p>
+  <button type="button" id="bf-retry-btn" class="bf-btn bf-btn-gold bf-state-btn">Try again</button>
+</section>
+
+<!-- ===================== APP ===================== -->
+<div id="bf-screen-app" class="bf-screen" hidden>
+  <header class="bf-header">
+    <div class="bf-header-inner">
+      <div class="bf-header-left">
+        <svg class="bf-logo" width="30" height="26" viewBox="0 0 30 26" aria-hidden="true"><path d="M3 22 L5 6 L11 13 L15 3 L19 13 L25 6 L27 22 Z" fill="#E9B949" stroke="#1D3447" stroke-width="2.5" stroke-linejoin="round"/></svg>
+        <h1 id="bf-title" class="bf-title">Boss Fridge</h1>
+      </div>
+      <button type="button" id="bf-avatars" class="bf-avatars-btn" aria-label="Account and household members"></button>
+    </div>
+  </header>
+
+  <main id="bf-main" class="bf-main">
+    <section id="bf-tab-boss" class="bf-panel" aria-labelledby="bf-nav-boss">
+      <div id="bf-tab-boss-soon" class="bf-card bf-hero">
+        <svg class="bf-mascot" viewBox="0 0 150 190" aria-hidden="true"><rect x="22" y="40" width="106" height="140" rx="26" fill="#EAF6FD" stroke="#1D3447" stroke-width="5"/><line x1="22" y1="92" x2="128" y2="92" stroke="#1D3447" stroke-width="4"/><rect x="108" y="54" width="8" height="26" rx="4" fill="#1D3447"/><rect x="108" y="104" width="8" height="34" rx="4" fill="#1D3447"/><path d="M48 111 L62 115" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><path d="M98 111 L84 115" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><circle cx="56" cy="125" r="6.5" fill="#1D3447"/><circle cx="58" cy="123" r="2.2" fill="#fff"/><circle cx="90" cy="125" r="6.5" fill="#1D3447"/><circle cx="92" cy="123" r="2.2" fill="#fff"/><ellipse cx="45" cy="139" rx="8" ry="5" fill="#F6B89F"/><ellipse cx="101" cy="139" rx="8" ry="5" fill="#F6B89F"/><path d="M63 141 Q73 151 83 141" fill="none" stroke="#1D3447" stroke-width="4" stroke-linecap="round"/><path d="M40 56 l3 -8 l3 8 l8 3 l-8 3 l-3 8 l-3 -8 l-8 -3 z" fill="#fff"/><rect x="36" y="176" width="18" height="11" rx="4" fill="#1D3447"/><rect x="96" y="176" width="18" height="11" rx="4" fill="#1D3447"/><path d="M42 44 L49 12 L63 30 L75 4 L87 30 L101 12 L108 44 Z" fill="#E9B949" stroke="#1D3447" stroke-width="4.5" stroke-linejoin="round"/><circle cx="75" cy="30" r="5" fill="#F6B89F" stroke="#1D3447" stroke-width="3"/><circle cx="57" cy="34" r="3.5" fill="#A9D3EC" stroke="#1D3447" stroke-width="2.5"/><circle cx="93" cy="34" r="3.5" fill="#A9D3EC" stroke="#1D3447" stroke-width="2.5"/></svg>
+        <p class="bf-bubble">Setting up my kingdom. Bring me food soon.</p>
+      </div>
+      <div id="bf-tab-boss-body"></div>
+    </section>
+
+    <section id="bf-tab-fridge" class="bf-panel" aria-labelledby="bf-nav-fridge" hidden>
+      <div id="bf-tab-fridge-soon" class="bf-card"><p class="bf-soon">What we have &mdash; coming soon.</p></div>
+      <div id="bf-tab-fridge-body"></div>
+    </section>
+
+    <section id="bf-tab-shop" class="bf-panel" aria-labelledby="bf-nav-shop" hidden>
+      <div id="bf-tab-shop-soon" class="bf-card"><p class="bf-soon">The shopping list &mdash; coming soon.</p></div>
+      <div id="bf-tab-shop-body"></div>
+    </section>
+
+    <section id="bf-tab-library" class="bf-panel" aria-labelledby="bf-nav-library" hidden>
+      <div id="bf-tab-library-soon" class="bf-card"><p class="bf-soon">Every dish we know &mdash; coming soon.</p></div>
+      <div id="bf-tab-library-body"></div>
+    </section>
+
+    <section id="bf-tab-play" class="bf-panel" aria-labelledby="bf-nav-play" hidden>
+      <div id="bf-tab-play-soon" class="bf-card"><p class="bf-soon">Spin, swipe, vote &mdash; coming soon.</p></div>
+      <div id="bf-tab-play-body"></div>
+    </section>
+  </main>
+
+  <nav class="bf-nav" aria-label="Main">
+    <button type="button" id="bf-nav-boss" class="bf-nav-btn" data-tab="boss" aria-current="page">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 18 L5 7 L9.5 11.5 L12 5 L14.5 11.5 L19 7 L20.5 18 Z"/><path d="M5 21 H19"/></svg>
+      <span class="bf-nav-label">Boss</span>
+    </button>
+    <button type="button" id="bf-nav-fridge" class="bf-nav-btn" data-tab="fridge">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="3"/><path d="M5 10 H19"/><path d="M9 5.5 V7.5"/><path d="M9 13 V16"/></svg>
+      <span class="bf-nav-label">Fridge</span>
+    </button>
+    <button type="button" id="bf-nav-shop" class="bf-nav-btn" data-tab="shop">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 8 H19.5 L18.5 20 A1.8 1.8 0 0 1 16.7 21.5 H7.3 A1.8 1.8 0 0 1 5.5 20 Z"/><path d="M8.5 10.5 V6.5 A3.5 3.5 0 0 1 15.5 6.5 V10.5"/></svg>
+      <span class="bf-nav-label">Shop</span>
+    </button>
+    <button type="button" id="bf-nav-library" class="bf-nav-btn" data-tab="library">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 19 V5 A2.5 2.5 0 0 1 7 2.5 H19.5 V17 H7 A2.5 2.5 0 0 0 4.5 19.5 A2.5 2.5 0 0 0 7 21.5 H19.5 V17"/><path d="M9 7 H15"/></svg>
+      <span class="bf-nav-label">Library</span>
+    </button>
+    <button type="button" id="bf-nav-play" class="bf-nav-btn" data-tab="play">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><circle cx="8.5" cy="8.5" r="1.1" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1.1" fill="currentColor"/><circle cx="12" cy="12" r="1.1" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1.1" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.1" fill="currentColor"/></svg>
+      <span class="bf-nav-label">Play</span>
+    </button>
+  </nav>
+
+  <div id="bf-toast-layer" class="bf-toast-layer" aria-live="polite"></div>
+
+  <div id="bf-scrim" class="bf-scrim" hidden></div>
+  <div id="bf-sheet" class="bf-sheet" role="dialog" aria-modal="true" aria-label="Details" tabindex="-1" hidden>
+    <div class="bf-sheet-grip" aria-hidden="true"></div>
+    <div id="bf-sheet-body"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* ===================== Boss Fridge - app shell (batch A) ===================== */
+var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
+var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
+var BF_VERSION = 'bf-v1';
+
+var BF = {
+  sb: null,
+  session: null,
+  me: null,
+  members: [],
+  screen: null,
+  tab: 'boss',
+  TABS: { boss: 'Boss Fridge', fridge: 'Fridge', shop: 'Shopping', library: 'Food library', play: 'Play' },
+  SCREENS: ['login', 'notmember', 'napping', 'app'],
+  _foreground: [],
+  _bootSeq: 0,
+  _toastTimer: 0,
+  _sheetReturn: null
+};
+
+/* ---------- small DOM helpers (textContent only, never raw HTML) ---------- */
+BF.$ = function (id) { return document.getElementById(id); };
+BF.el = function (tag, className, text) {
+  var e = document.createElement(tag);
+  if (className) e.className = className;
+  if (text != null) e.textContent = String(text);
+  return e;
+};
+
+/* ---------- screens & tabs ---------- */
+BF.showScreen = function (name) {
+  if (BF.SCREENS.indexOf(name) < 0) return;
+  if (name !== 'app') { BF.closeSheet(); BF.hideToast(); }
+  BF.SCREENS.forEach(function (s) { BF.$('bf-screen-' + s).hidden = (s !== name); });
+  BF.screen = name;
+};
+
+BF.showTab = function (name) {
+  if (!BF.TABS[name]) name = 'boss';
+  BF.tab = name;
+  Object.keys(BF.TABS).forEach(function (t) {
+    BF.$('bf-tab-' + t).hidden = (t !== name);
+    var b = BF.$('bf-nav-' + t);
+    if (t === name) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+  BF.$('bf-title').textContent = BF.TABS[name];
+  BF.$('bf-main').scrollTop = 0;
+};
+
+/* ---------- toast ---------- */
+BF.hideToast = function () {
+  clearTimeout(BF._toastTimer);
+  BF.$('bf-toast-layer').replaceChildren();
+};
+
+BF.toast = function (text, undoFn) {
+  BF.hideToast();
+  var t = BF.el('div', 'bf-toast');
+  t.setAttribute('role', 'status');
+  t.appendChild(BF.el('span', 'bf-toast-text', text));
+  if (typeof undoFn === 'function') {
+    var u = BF.el('button', 'bf-btn bf-btn-gold', 'Undo');
+    u.type = 'button';
+    u.addEventListener('click', function () { BF.hideToast(); undoFn(); });
+    t.appendChild(u);
+  }
+  BF.$('bf-toast-layer').appendChild(t);
+  BF._toastTimer = setTimeout(BF.hideToast, 4200);
+};
+
+/* ---------- bottom sheet ---------- */
+BF.openSheet = function (buildFn) {
+  var sheet = BF.$('bf-sheet');
+  var body = BF.$('bf-sheet-body');
+  body.replaceChildren();
+  if (typeof buildFn === 'function') buildFn(body);
+  if (sheet.hidden) BF._sheetReturn = document.activeElement;
+  BF.$('bf-scrim').hidden = false;
+  sheet.hidden = false;
+  sheet.scrollTop = 0;
+  sheet.focus();
+};
+
+BF.closeSheet = function () {
+  var sheet = BF.$('bf-sheet');
+  if (sheet.hidden) return;
+  sheet.hidden = true;
+  BF.$('bf-scrim').hidden = true;
+  BF.$('bf-sheet-body').replaceChildren();
+  var back = BF._sheetReturn;
+  BF._sheetReturn = null;
+  if (back && typeof back.focus === 'function' && document.contains(back)) back.focus();
+};
+
+/* ---------- foreground hooks ---------- */
+BF.onForeground = function (fn) {
+  if (typeof fn === 'function') BF._foreground.push(fn);
+};
+
+BF.runForeground = function () {
+  BF._foreground.forEach(function (fn) {
+    try { fn(); } catch (e) { console.warn('onForeground callback failed', e); }
+  });
+};
+
+/* ---------- members ---------- */
+BF.firstChar = function (s) {
+  var chars = Array.from(String(s || '').trim());
+  return chars.length ? chars[0].toUpperCase() : '?';
+};
+
+BF.renderAvatars = function () {
+  var box = BF.$('bf-avatars');
+  box.replaceChildren();
+  BF.members.forEach(function (m) {
+    box.appendChild(BF.el('span', 'bf-avatar', m.emoji || BF.firstChar(m.display_name || m.email)));
+  });
+  if (!BF.members.length) box.appendChild(BF.el('span', 'bf-avatar', '?'));
+};
+
+BF.isNetworkError = function (err, status) {
+  if (!err) return false;
+  if (!status || status >= 500) return true;
+  return /fetch|network|load failed|timed? ?out/i.test(String(err.message || err.name || ''));
+};
+
+/* Returns { status: 'ok' | 'notmember' | 'offline', me, rows }. Does not touch the UI. */
+BF.fetchMembers = async function (session) {
+  var res;
+  try {
+    res = await BF.sb.from('bf_members').select('email, display_name, emoji');
+  } catch (e) {
+    return { status: 'offline' };
+  }
+  if (res.error) {
+    if (BF.isNetworkError(res.error, res.status)) return { status: 'offline' };
+    // Any other refusal (RLS, permission) means this account can't see the list.
+    return { status: 'notmember' };
+  }
+  var rows = res.data || [];
+  var email = String((session.user && session.user.email) || '').toLowerCase();
+  var me = null;
+  rows.forEach(function (r) {
+    if (!me && email && String(r.email || '').toLowerCase() === email) me = r;
+  });
+  if (!me) return { status: 'notmember' };
+  return { status: 'ok', me: me, rows: rows };
+};
+
+/* ---------- boot ---------- */
+BF.boot = async function () {
+  var seq = ++BF._bootSeq;
+  var stale = function () { return seq !== BF._bootSeq; };
+
+  if (!navigator.onLine || !BF.sb) { BF.showScreen('napping'); return; }
+
+  var session = null;
+  try {
+    var r = await BF.sb.auth.getSession();
+    // Only a network failure means napping; a dead refresh token just means "log in again".
+    if (r.error && /fetch|network|retryable/i.test(String(r.error.name) + ' ' + String(r.error.message))) {
+      if (!stale()) BF.showScreen('napping');
+      return;
+    }
+    session = r.data ? r.data.session : null;
+  } catch (e) {
+    if (!stale()) BF.showScreen('napping');
+    return;
+  }
+  if (stale()) return;
+
+  BF.session = session;
+  if (!session) {
+    BF.me = null;
+    BF.members = [];
+    BF.showScreen('login');
+    return;
+  }
+
+  var result = await BF.fetchMembers(session);
+  if (stale()) return;
+
+  if (result.status === 'offline') { BF.showScreen('napping'); return; }
+  if (result.status === 'notmember') {
+    BF.me = null;
+    BF.members = [];
+    BF.showScreen('notmember');
+    return;
+  }
+
+  BF.me = result.me;
+  BF.members = result.rows;
+  BF.renderAvatars();
+  var entering = BF.screen !== 'app';
+  BF.showScreen('app');
+  if (entering) BF.showTab(BF.tab);
+};
+
+/* Try again / back online. If the Supabase library never loaded (page opened offline
+   from the service-worker cache), a reload is the only way to fetch it. */
+BF.retry = function () {
+  if (!BF.sb && navigator.onLine) { location.reload(); return; }
+  BF.boot();
+};
+
+/* ---------- auth actions ---------- */
+BF.signIn = async function () {
+  var btn = BF.$('bf-login-btn');
+  var msg = BF.$('bf-login-msg');
+  msg.hidden = true;
+  if (!BF.sb || !navigator.onLine) { BF.showScreen('napping'); return; }
+  btn.disabled = true;
+  try {
+    var r = await BF.sb.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: location.origin + location.pathname,
+        queryParams: { prompt: 'select_account' }
+      }
+    });
+    if (r.error) throw r.error;
+    // Full-page redirect to Google follows.
+  } catch (e) {
+    btn.disabled = false;
+    msg.textContent = 'Could not reach Google. Please try again.';
+    msg.hidden = false;
+  }
+};
+
+BF.signOut = async function () {
+  BF.closeSheet();
+  if (BF.sb) {
+    try {
+      var r = await BF.sb.auth.signOut();
+      // A global sign-out that can't reach the server keeps the local session; drop it anyway.
+      if (r && r.error) await BF.sb.auth.signOut({ scope: 'local' });
+    } catch (e) {
+      try { await BF.sb.auth.signOut({ scope: 'local' }); } catch (e2) { /* ignore */ }
+    }
+  }
+  BF._bootSeq++;
+  BF.session = null;
+  BF.me = null;
+  BF.members = [];
+  BF.$('bf-login-btn').disabled = false;
+  BF.showScreen('login');
+};
+
+/* ---------- account sheet ---------- */
+BF.openAccount = function () {
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Account'));
+
+    var who = BF.el('p', 'bf-sheet-who', 'Signed in as ');
+    who.appendChild(BF.el('strong', null, (BF.session && BF.session.user && BF.session.user.email) || ''));
+    box.appendChild(who);
+
+    var list = BF.el('ul', 'bf-member-list');
+    list.setAttribute('aria-label', 'Household members');
+    BF.members.forEach(function (m) {
+      var li = BF.el('li', 'bf-member');
+      var av = BF.el('span', 'bf-avatar', m.emoji || BF.firstChar(m.display_name || m.email));
+      av.setAttribute('aria-hidden', 'true');
+      li.appendChild(av);
+      li.appendChild(BF.el('span', null, m.display_name || m.email || ''));
+      if (m === BF.me) li.appendChild(BF.el('span', 'bf-member-you', '(you)'));
+      list.appendChild(li);
+    });
+    box.appendChild(list);
+
+    var out = BF.el('button', 'bf-btn bf-btn-wide', 'Sign out');
+    out.type = 'button';
+    out.addEventListener('click', BF.signOut);
+    box.appendChild(out);
+
+    box.appendChild(BF.el('p', 'bf-version', 'Version ' + BF_VERSION));
+  });
+};
+
+/* ---------- wiring ---------- */
+BF.init = function () {
+  try {
+    BF.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  } catch (e) {
+    BF.sb = null;
+  }
+
+  if (BF.sb) {
+    BF.sb.auth.onAuthStateChange(function (event) {
+      // Defer: calling Supabase from inside this callback can deadlock the auth lock.
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') setTimeout(BF.boot, 0);
+    });
+  }
+
+  BF.$('bf-login-btn').addEventListener('click', BF.signIn);
+  BF.$('bf-other-account-btn').addEventListener('click', BF.signOut);
+  BF.$('bf-retry-btn').addEventListener('click', BF.retry);
+  BF.$('bf-avatars').addEventListener('click', BF.openAccount);
+  BF.$('bf-scrim').addEventListener('click', BF.closeSheet);
+
+  Object.keys(BF.TABS).forEach(function (t) {
+    BF.$('bf-nav-' + t).addEventListener('click', function () { BF.showTab(t); });
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') BF.closeSheet();
+  });
+
+  window.addEventListener('offline', function () { BF._bootSeq++; BF.showScreen('napping'); });
+  window.addEventListener('online', BF.retry);
+
+  document.addEventListener('visibilitychange', async function () {
+    if (document.visibilityState !== 'visible' || !BF.sb || !navigator.onLine) return;
+    var r;
+    try { r = await BF.sb.auth.getSession(); } catch (e) { return; }
+    if (!r || !r.data || !r.data.session) return;
+    await BF.boot();
+    if (BF.screen === 'app') BF.runForeground();
+  });
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('./sw.js').catch(function (e) {
+        console.warn('Service worker registration failed', e);
+      });
+    });
+  }
+
+  BF.boot();
+};
+
+BF.init();
+</script>
+</body>
+</html>
