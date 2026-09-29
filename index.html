@@ -278,6 +278,93 @@ button { font: inherit; color: inherit; }
 .bf-member-you { color: var(--bf-muted); font-weight: 700; font-size: 14px; }
 .bf-version { text-align: center; color: var(--bf-muted); font-size: 12px; font-weight: 700; margin: 16px 0 0; }
 
+/* ---------- batch B: fridge + shop ---------- */
+.bf-vh {
+  position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.bf-stack { display: flex; flex-direction: column; gap: 14px; }
+.bf-field {
+  display: block; width: 100%; min-height: 48px; padding: 0 14px;
+  border: 2.5px solid var(--bf-ink); border-radius: 14px;
+  background: var(--bf-card); color: var(--bf-ink);
+  font-family: var(--bf-font); font-weight: 700; font-size: 16px;
+  -webkit-appearance: none; appearance: none;
+}
+textarea.bf-field { min-height: 150px; padding: 12px 14px; line-height: 1.5; resize: vertical; }
+input[type="date"].bf-field { width: auto; min-width: 170px; display: inline-block; }
+.bf-field::placeholder { color: var(--bf-muted); font-weight: 600; opacity: 1; }
+.bf-field:focus { outline: 3px solid var(--bf-blue); outline-offset: 1px; }
+.bf-label { display: block; font-weight: 900; font-size: 14px; margin: 0 0 6px; }
+.bf-form { display: flex; flex-direction: column; gap: 16px; }
+.bf-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.bf-fieldset legend { padding: 0; }
+.bf-err { margin: 6px 0 0; font-size: 14px; font-weight: 800; color: var(--bf-hot); }
+.bf-hint { margin: 0; font-size: 14px; font-weight: 700; color: var(--bf-muted); }
+.bf-pills { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.bf-pill {
+  min-height: 44px; min-width: 44px; padding: 0 16px;
+  border: 2px solid var(--bf-ink); border-radius: 999px;
+  background: var(--bf-card); color: var(--bf-ink);
+  font-family: var(--bf-font); font-weight: 800; font-size: 15px;
+  cursor: pointer;
+}
+.bf-pill.is-on { background: var(--bf-ink); color: var(--bf-bg); }
+.bf-pill:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 2px; }
+.bf-btn-sm { padding: 0 12px; font-size: 14px; }
+.bf-btn-ghost { background: transparent; box-shadow: none; border-color: var(--bf-line); }
+.bf-btn-ghost:active { box-shadow: none; }
+.bf-btn-xs { font-size: 12px; }
+.bf-toolbar { display: flex; gap: 10px; align-items: center; }
+.bf-toolbar .bf-field { flex: 1 1 auto; min-width: 0; }
+.bf-square { width: 48px; min-width: 48px; height: 48px; padding: 0; font-size: 26px; line-height: 1; }
+.bf-toolbar .bf-btn { min-height: 48px; flex: 0 0 auto; }
+.bf-group { display: flex; flex-direction: column; gap: 8px; }
+.bf-group-head { display: flex; align-items: baseline; gap: 10px; padding: 0 4px; }
+.bf-group-title { font-family: var(--bf-font-head); font-size: 18px; font-weight: 700; margin: 0; }
+.bf-group-count { font-size: 13px; font-weight: 800; color: var(--bf-muted); }
+.bf-rows { padding: 2px 14px; }
+.bf-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 0; min-height: 64px;
+  border-top: 2px dashed var(--bf-line);
+}
+.bf-row:first-child { border-top: 0; }
+.bf-row-main { flex: 1 1 auto; min-width: 0; }
+.bf-row-acts { flex: 0 0 auto; display: flex; gap: 8px; }
+.bf-textbtn {
+  display: block; width: 100%; min-height: 44px; padding: 0; margin: 0;
+  border: 0; background: transparent; color: var(--bf-ink); text-align: left;
+  font-family: var(--bf-font); font-weight: 900; font-size: 17px; line-height: 1.25;
+  overflow-wrap: anywhere; cursor: pointer;
+}
+.bf-textbtn:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 2px; border-radius: 6px; }
+.bf-meta { font-size: 13px; font-weight: 700; color: var(--bf-muted); margin-top: -8px; overflow-wrap: anywhere; }
+.bf-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.bf-tag {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+  border-radius: 999px; font-size: 11px; font-weight: 900; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--bf-ink);
+}
+.bf-tag-soon { background: var(--bf-peach); color: var(--bf-hot); }
+.bf-tag-leftover { background: var(--bf-goldsoft); box-shadow: inset 0 0 0 1.5px var(--bf-gold); }
+.bf-tag-ready { background: var(--bf-ice); }
+.bf-empty { margin: 0; font-weight: 800; }
+.bf-counter { display: flex; align-items: center; gap: 10px; }
+.bf-counter-val { min-width: 36px; text-align: center; font-family: var(--bf-font-head); font-size: 22px; font-weight: 700; }
+.bf-sheet-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.bf-sheet-acts .bf-btn { flex: 1 1 auto; }
+.bf-toggle { justify-content: space-between; }
+.bf-toggle-state { font-size: 14px; color: var(--bf-muted); font-weight: 800; }
+.bf-shake { animation: bf-shake .38s ease; }
+@keyframes bf-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(7px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(3px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -337,12 +424,10 @@ button { font: inherit; color: inherit; }
     </section>
 
     <section id="bf-tab-fridge" class="bf-panel" aria-labelledby="bf-nav-fridge" hidden>
-      <div id="bf-tab-fridge-soon" class="bf-card"><p class="bf-soon">What we have &mdash; coming soon.</p></div>
       <div id="bf-tab-fridge-body"></div>
     </section>
 
     <section id="bf-tab-shop" class="bf-panel" aria-labelledby="bf-nav-shop" hidden>
-      <div id="bf-tab-shop-soon" class="bf-card"><p class="bf-soon">The shopping list &mdash; coming soon.</p></div>
       <div id="bf-tab-shop-body"></div>
     </section>
 
@@ -394,7 +479,7 @@ button { font: inherit; color: inherit; }
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v1';
+var BF_VERSION = 'bf-v2';
 
 var BF = {
   sb: null,
@@ -721,6 +806,794 @@ BF.init = function () {
   }
 
   BF.boot();
+};
+
+/* ===================== batch B: fridge + shop ===================== */
+BF.data = { items: [], groceries: [], bought: [], suggest: [], loaded: false };
+BF.SAVE_FAIL = 'Couldn\'t save \u2013 check your connection';
+BF.LOCATIONS = [['fridge', 'Fridge'], ['freezer', 'Freezer'], ['storage', 'Storage']];
+BF._loadSeq = 0;
+BF._recentOpen = false;
+
+/* ---------- helpers ---------- */
+BF.pad2 = function (n) { return (n < 10 ? '0' : '') + n; };
+BF.ymd = function (d) { return d.getFullYear() + '-' + BF.pad2(d.getMonth() + 1) + '-' + BF.pad2(d.getDate()); };
+BF.today = function () { return BF.ymd(new Date()); };
+BF.addDays = function (n) {
+  var p = BF.today().split('-');
+  var d = new Date(+p[0], +p[1] - 1, +p[2] + n, 12);
+  return BF.ymd(d);
+};
+BF.daysUntil = function (dateStr) {
+  if (!dateStr) return null;
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateStr));
+  if (!m) return null;
+  var t = BF.today().split('-');
+  var a = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  var b = Date.UTC(+t[0], +t[1] - 1, +t[2]);
+  return Math.round((a - b) / 86400000);
+};
+BF.expiryText = function (dateStr) {
+  var n = BF.daysUntil(dateStr);
+  if (n === null) return null;
+  if (n === 0) return 'today';
+  if (n === 1) return 'tomorrow';
+  if (n === -1) return 'yesterday';
+  return n > 1 ? 'in ' + n + ' days' : (-n) + ' days ago';
+};
+BF.cleanLines = function (text) {
+  return String(text == null ? '' : text).split(/\r?\n/).map(function (line) {
+    return line.trim().replace(/^(?:[-*\u2022]+|\d+[.)](?=\s|$))\s*/, '').trim();
+  }).filter(Boolean);
+};
+BF.sameName = function (a, b) {
+  return String(a == null ? '' : a).trim().toLowerCase() === String(b == null ? '' : b).trim().toLowerCase();
+};
+BF.plural = function (n, one, many) { return n + ' ' + (n === 1 ? one : many); };
+BF.findItem = function (id) { return BF.data.items.filter(function (i) { return i.id === id; })[0] || null; };
+BF.findGrocery = function (id) {
+  return BF.data.groceries.concat(BF.data.bought).filter(function (g) { return g.id === id; })[0] || null;
+};
+BF.onList = function (name) {
+  return BF.data.groceries.filter(function (g) { return BF.sameName(g.name, name); })[0] || null;
+};
+BF.myEmail = function () {
+  return (BF.me && BF.me.email) || (BF.session && BF.session.user && BF.session.user.email) || null;
+};
+BF.q = function (res) { if (res.error) throw res.error; return res.data; };
+BF.shake = function (el) {
+  el.classList.remove('bf-shake');
+  void el.offsetWidth;
+  el.classList.add('bf-shake');
+};
+
+/* Run a write. Success: reload data, resolve to fn's result (or true). Failure: toast, reload, false. */
+BF.run = async function (fn) {
+  var out;
+  try {
+    out = await fn();
+  } catch (e) {
+    console.warn('write failed', e);
+    BF.toast(BF.SAVE_FAIL);
+    BF.loadData();
+    return false;
+  }
+  await BF.loadData();
+  return out === undefined ? true : out;
+};
+
+/* ---------- suggestions datalist ---------- */
+BF.suggestList = function () {
+  var dl = BF.$('bf-suggest');
+  if (!dl) {
+    dl = document.createElement('datalist');
+    dl.id = 'bf-suggest';
+    document.body.appendChild(dl);
+  }
+  return dl;
+};
+BF.renderSuggest = function () {
+  var dl = BF.suggestList();
+  dl.replaceChildren();
+  BF.data.suggest.forEach(function (s) {
+    var o = document.createElement('option');
+    o.value = s;
+    dl.appendChild(o);
+  });
+};
+BF.buildSuggest = function (dishes) {
+  var seen = {};
+  var out = [];
+  var add = function (v) {
+    if (v && typeof v === 'object') v = v.name;
+    if (typeof v !== 'string') return;
+    v = v.trim();
+    var k = v.toLowerCase();
+    if (!v || seen[k]) return;
+    seen[k] = true;
+    out.push(v);
+  };
+  BF.data.items.forEach(function (i) { add(i.name); });
+  BF.data.groceries.concat(BF.data.bought).forEach(function (g) { add(g.name); });
+  (dishes || []).forEach(function (d) {
+    add(d.name);
+    var ing = d.ingredients;
+    if (Array.isArray(ing)) ing.forEach(add);
+    else if (typeof ing === 'string') ing.split(/[\n,]/).forEach(add);
+  });
+  out.sort(function (a, b) { return a.localeCompare(b, undefined, { sensitivity: 'base' }); });
+  return out;
+};
+
+/* ---------- data ---------- */
+BF.loadData = async function () {
+  if (!BF.sb) return;
+  var seq = ++BF._loadSeq;
+  var weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+  var rs;
+  try {
+    rs = await Promise.all([
+      BF.sb.from('bf_items').select('*').order('added_at', { ascending: false }),
+      BF.sb.from('bf_groceries').select('*').eq('status', 'to_buy').order('added_at', { ascending: true }),
+      BF.sb.from('bf_groceries').select('*').eq('status', 'bought').gte('bought_at', weekAgo).order('bought_at', { ascending: false }),
+      BF.sb.from('bf_dishes').select('name, ingredients')
+    ]);
+  } catch (e) {
+    if (seq === BF._loadSeq) BF.showScreen('napping');
+    return;
+  }
+  if (seq !== BF._loadSeq) return;
+
+  // bf_dishes only feeds suggestions: a non-network error there is not fatal.
+  var bad = rs.filter(function (r, i) {
+    return r.error && (i < 3 || BF.isNetworkError(r.error, r.status));
+  })[0];
+  if (bad) {
+    if (BF.isNetworkError(bad.error, bad.status)) BF.showScreen('napping');
+    else BF.toast('Couldn\'t load. Reopen the app to retry.');
+    return;
+  }
+
+  BF.data.items = rs[0].data || [];
+  BF.data.groceries = rs[1].data || [];
+  BF.data.bought = rs[2].data || [];
+  BF.data.suggest = BF.buildSuggest(rs[3].error ? [] : (rs[3].data || []));
+  BF.data.loaded = true;
+  BF.renderSuggest();
+  BF.renderFridge();
+  BF.renderShop();
+};
+
+var _bfBootA = BF.boot;
+BF.boot = async function () {
+  await _bfBootA.apply(this, arguments);
+  if (BF.screen === 'app') await BF.loadData();
+};
+
+/* ---------- small builders ---------- */
+BF.button = function (text, className, onClick, ariaLabel) {
+  var b = BF.el('button', 'bf-btn ' + (className || ''), text);
+  b.type = 'button';
+  if (ariaLabel) b.setAttribute('aria-label', ariaLabel);
+  if (onClick) b.addEventListener('click', onClick);
+  return b;
+};
+BF.input = function (opts) {
+  var i = document.createElement(opts.tag || 'input');
+  i.className = 'bf-field';
+  if (!opts.tag) i.type = opts.type || 'text';
+  if (opts.id) i.id = opts.id;
+  if (opts.placeholder) i.placeholder = opts.placeholder;
+  if (opts.value != null) i.value = opts.value;
+  if (opts.suggest) i.setAttribute('list', 'bf-suggest');
+  i.autocomplete = 'off';
+  return i;
+};
+BF.labelled = function (text, field, hidden) {
+  var wrap = BF.el('div');
+  var l = BF.el('label', hidden ? 'bf-vh' : 'bf-label', text);
+  if (!field.id) field.id = 'bf-f-' + Math.random().toString(36).slice(2, 9);
+  l.htmlFor = field.id;
+  wrap.appendChild(l);
+  wrap.appendChild(field);
+  return wrap;
+};
+/* Pill group: options [[value, label], ...]. get() returns the current value; set(v) stores it. */
+BF.pillGroup = function (legend, options, get, set) {
+  var fs = BF.el('fieldset', 'bf-fieldset');
+  fs.appendChild(BF.el('legend', 'bf-label', legend));
+  var row = BF.el('div', 'bf-pills');
+  var btns = [];
+  var sync = function () {
+    btns.forEach(function (b) {
+      var on = b._val === get();
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  };
+  options.forEach(function (o) {
+    var b = BF.el('button', 'bf-pill', o[1]);
+    b.type = 'button';
+    b._val = o[0];
+    b.addEventListener('click', function () { set(o[0]); sync(); if (fs._onChange) fs._onChange(); });
+    btns.push(b);
+    row.appendChild(b);
+  });
+  fs.appendChild(row);
+  fs._row = row;
+  fs._sync = sync;
+  sync();
+  return fs;
+};
+BF.togglePill = function (label, get, set) {
+  var b = BF.el('button', 'bf-pill', label);
+  b.type = 'button';
+  var sync = function () {
+    b.classList.toggle('is-on', !!get());
+    b.setAttribute('aria-pressed', get() ? 'true' : 'false');
+  };
+  b.addEventListener('click', function () { set(!get()); sync(); });
+  sync();
+  return b;
+};
+BF.emptyCard = function (text) {
+  var c = BF.el('div', 'bf-card');
+  c.appendChild(BF.el('p', 'bf-empty', text));
+  return c;
+};
+BF.groupHead = function (title, countText) {
+  var h = BF.el('div', 'bf-group-head');
+  h.appendChild(BF.el('h2', 'bf-group-title', title));
+  if (countText) h.appendChild(BF.el('span', 'bf-group-count', countText));
+  return h;
+};
+
+/* Keep focused sheet inputs clear of the on-screen keyboard. */
+document.addEventListener('focusin', function (e) {
+  var t = e.target;
+  if (!t || !t.closest || !t.closest('#bf-sheet') || !/^(INPUT|TEXTAREA)$/.test(t.tagName)) return;
+  setTimeout(function () {
+    if (document.activeElement === t) t.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, 300);
+});
+
+/* ---------- fridge tab ---------- */
+BF.buildFridgeUI = function () {
+  var body = BF.$('bf-tab-fridge-body');
+  body.classList.add('bf-stack');
+  var bar = BF.el('div', 'bf-toolbar');
+  var search = BF.input({ type: 'search', id: 'bf-fridge-search', placeholder: 'Search the fridge' });
+  search.addEventListener('input', function () { BF.renderFridge(); });
+  var sw = BF.labelled('Search the fridge', search, true);
+  sw.style.flex = '1 1 auto';
+  sw.style.minWidth = '0';
+  bar.appendChild(sw);
+  bar.appendChild(BF.button('+', 'bf-btn-gold bf-square', function () { BF.openItemSheet(null); }, 'Add item'));
+  bar.appendChild(BF.button('Bulk', '', BF.openBulkItems));
+  var list = BF.el('div', 'bf-stack');
+  body.appendChild(bar);
+  body.appendChild(list);
+  BF.fridgeUI = { search: search, list: list };
+  return BF.fridgeUI;
+};
+
+BF.itemRow = function (it) {
+  var name = String(it.name == null ? '' : it.name);
+  var row = BF.el('div', 'bf-row');
+  var main = BF.el('div', 'bf-row-main');
+  var nb = BF.el('button', 'bf-textbtn', name);
+  nb.type = 'button';
+  nb.addEventListener('click', function () { BF.openItemSheet(it.id); });
+  main.appendChild(nb);
+
+  var meta = [];
+  if (it.count != null) meta.push('\u00D7' + it.count);
+  var ex = BF.expiryText(it.expiry);
+  if (ex) meta.push(ex);
+  if (meta.length) main.appendChild(BF.el('div', 'bf-meta', meta.join(' \u00B7 ')));
+
+  var tags = BF.el('div', 'bf-tags');
+  var d = BF.daysUntil(it.expiry);
+  if (d !== null && d <= 1) tags.appendChild(BF.el('span', 'bf-tag bf-tag-soon', 'Eat soon'));
+  if (it.leftover) tags.appendChild(BF.el('span', 'bf-tag bf-tag-leftover', 'Leftover'));
+  if (it.ready) tags.appendChild(BF.el('span', 'bf-tag bf-tag-ready', 'Ready'));
+  if (tags.childNodes.length) main.appendChild(tags);
+  row.appendChild(main);
+
+  var acts = BF.el('div', 'bf-row-acts');
+  acts.appendChild(BF.button('Low', 'bf-btn-ghost bf-btn-sm', function (e) {
+    e.currentTarget.disabled = true;
+    BF.runningLow(name);
+  }, 'Running low on ' + name));
+  acts.appendChild(BF.button('Ate it', 'bf-btn-primary bf-btn-sm', function (e) {
+    e.currentTarget.disabled = true;
+    BF.ateIt(it.id);
+  }, 'Ate it: ' + name));
+  row.appendChild(acts);
+  return row;
+};
+
+BF.renderFridge = function () {
+  var ui = BF.fridgeUI || BF.buildFridgeUI();
+  var list = ui.list;
+  list.replaceChildren();
+  if (!BF.data.loaded) return;
+  var items = BF.data.items;
+  if (!items.length) {
+    list.appendChild(BF.emptyCard('The fridge is empty. Add something, or paste a list with Bulk.'));
+    return;
+  }
+  var needle = ui.search.value.trim().toLowerCase();
+  var shown = needle ? items.filter(function (i) {
+    return String(i.name == null ? '' : i.name).toLowerCase().indexOf(needle) >= 0;
+  }) : items;
+  if (!shown.length) {
+    list.appendChild(BF.emptyCard('Nothing matches.'));
+    return;
+  }
+  var known = BF.LOCATIONS.map(function (l) { return l[0]; });
+  BF.LOCATIONS.forEach(function (loc) {
+    var rows = shown.filter(function (i) {
+      return (known.indexOf(i.location) >= 0 ? i.location : 'fridge') === loc[0];
+    });
+    if (!rows.length) return;
+    var g = BF.el('section', 'bf-group');
+    g.appendChild(BF.groupHead(loc[1], BF.plural(rows.length, 'item', 'items')));
+    var card = BF.el('div', 'bf-card bf-rows');
+    rows.forEach(function (it) { card.appendChild(BF.itemRow(it)); });
+    g.appendChild(card);
+    list.appendChild(g);
+  });
+};
+
+/* ---------- item sheet ---------- */
+BF.openItemSheet = function (id) {
+  var old = id == null ? null : BF.findItem(id);
+  if (id != null && !old) return;
+  var st = old ? {
+    name: String(old.name == null ? '' : old.name),
+    count: old.count == null ? null : old.count,
+    location: old.location || null,
+    expiry: old.expiry ? String(old.expiry).slice(0, 10) : null,
+    ready: !!old.ready,
+    leftover: !!old.leftover,
+    notes: old.notes == null ? '' : String(old.notes)
+  } : { name: '', count: null, location: 'fridge', expiry: null, ready: false, leftover: false, notes: '' };
+
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', old ? st.name : 'Add to the fridge'));
+    var form = BF.el('div', 'bf-form');
+
+    var nameIn = BF.input({ placeholder: 'e.g. Pork Curry', value: st.name, suggest: true });
+    var nameWrap = BF.labelled('Name', nameIn);
+    var err = BF.el('p', 'bf-err', 'Needs a name');
+    err.hidden = true;
+    err.setAttribute('role', 'alert');
+    nameWrap.appendChild(err);
+    nameIn.addEventListener('input', function () { err.hidden = true; });
+    form.appendChild(nameWrap);
+
+    // Count
+    var cfs = BF.el('fieldset', 'bf-fieldset');
+    cfs.appendChild(BF.el('legend', 'bf-label', 'Count'));
+    var counter = BF.el('div', 'bf-counter');
+    var val = BF.el('span', 'bf-counter-val');
+    val.setAttribute('aria-live', 'polite');
+    var showCount = function () { val.textContent = st.count == null ? '-' : String(st.count); };
+    counter.appendChild(BF.button('-', 'bf-square', function () {
+      if (st.count == null) return;
+      st.count = st.count <= 1 ? null : st.count - 1;
+      showCount();
+    }, 'One less'));
+    counter.appendChild(val);
+    counter.appendChild(BF.button('+', 'bf-square', function () {
+      st.count = st.count == null ? 1 : st.count + 1;
+      showCount();
+    }, 'One more'));
+    counter.appendChild(BF.button('clear', 'bf-btn-ghost bf-btn-sm', function () { st.count = null; showCount(); }, 'Clear count'));
+    showCount();
+    cfs.appendChild(counter);
+    form.appendChild(cfs);
+
+    // Where
+    form.appendChild(BF.pillGroup('Where', BF.LOCATIONS,
+      function () { return st.location; }, function (v) { st.location = v; }));
+
+    // Goes off
+    var dateIn = BF.input({ type: 'date', value: st.expiry || '' });
+    dateIn.setAttribute('aria-label', 'Goes off on');
+    var offOpts = [[null, 'Not sure'], [0, 'Today'], [1, 'Tomorrow'], [3, '3 days'], [7, 'A week']];
+    var off = BF.pillGroup('Goes off', offOpts, function () {
+      if (!st.expiry) return null;
+      for (var i = 1; i < offOpts.length; i++) {
+        if (BF.addDays(offOpts[i][0]) === st.expiry) return offOpts[i][0];
+      }
+      return undefined;
+    }, function (v) {
+      st.expiry = v === null ? null : BF.addDays(v);
+      dateIn.value = st.expiry || '';
+    });
+    dateIn.addEventListener('change', function () { st.expiry = dateIn.value || null; off._sync(); });
+    off._row.appendChild(dateIn);
+    form.appendChild(off);
+
+    // Toggles
+    var tg = BF.el('div', 'bf-pills');
+    tg.appendChild(BF.togglePill('Ready to heat', function () { return st.ready; }, function (v) { st.ready = v; }));
+    tg.appendChild(BF.togglePill('Leftover', function () { return st.leftover; }, function (v) { st.leftover = v; }));
+    form.appendChild(tg);
+
+    var notesIn = BF.input({ value: st.notes });
+    form.appendChild(BF.labelled('Notes (optional)', notesIn));
+
+    form.appendChild(BF.button('Save', 'bf-btn-gold bf-btn-wide', async function () {
+      var name = nameIn.value.trim();
+      if (!name) {
+        err.hidden = false;
+        BF.shake(nameIn);
+        nameIn.focus();
+        return;
+      }
+      var row = {
+        name: name,
+        count: st.count,
+        location: st.location,
+        expiry: st.expiry,
+        ready: st.ready,
+        leftover: st.leftover,
+        notes: notesIn.value.trim() || null
+      };
+      BF.closeSheet();
+      var ok = await BF.run(async function () {
+        if (old) BF.q(await BF.sb.from('bf_items').update(row).eq('id', old.id));
+        else BF.q(await BF.sb.from('bf_items').insert(row));
+      });
+      if (ok) BF.toast(old ? 'Saved ' + name : 'Added ' + name);
+    }));
+
+    if (old) {
+      var acts = BF.el('div', 'bf-sheet-acts');
+      acts.appendChild(BF.button('Ate it', 'bf-btn-primary', function () { BF.closeSheet(); BF.ateIt(old.id); }));
+      acts.appendChild(BF.button('Running low', 'bf-btn-ghost', function () { BF.closeSheet(); BF.runningLow(old.name); }));
+      acts.appendChild(BF.button('Delete', 'bf-btn-ghost', function () { BF.closeSheet(); BF.deleteItem(old.id); }));
+      form.appendChild(acts);
+    }
+    box.appendChild(form);
+  });
+};
+
+BF.deleteItem = async function (id) {
+  var old = BF.findItem(id);
+  if (!old) return;
+  var ok = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_items').delete().eq('id', id));
+  });
+  if (ok) BF.toast('Deleted ' + old.name, function () {
+    BF.run(async function () { BF.q(await BF.sb.from('bf_items').insert(old)); });
+  });
+};
+
+/* ---------- ate it / running low ---------- */
+BF.ateIt = async function (id) {
+  var old = BF.findItem(id);
+  if (!old) return;
+  var decrement = old.count != null && old.count > 1;
+  var eatenId = await BF.run(async function () {
+    if (decrement) BF.q(await BF.sb.from('bf_items').update({ count: old.count - 1 }).eq('id', id));
+    else BF.q(await BF.sb.from('bf_items').delete().eq('id', id));
+    var eaten = BF.q(await BF.sb.from('bf_eaten')
+      .insert({ item_name: old.name, dish_id: old.dish_id == null ? null : old.dish_id })
+      .select('id').single());
+    return eaten ? eaten.id : null;
+  });
+  if (eatenId === false) return;
+  BF.toast('Ate ' + old.name, function () {
+    BF.run(async function () {
+      if (decrement) BF.q(await BF.sb.from('bf_items').update({ count: old.count }).eq('id', id));
+      else BF.q(await BF.sb.from('bf_items').insert(old));
+      if (eatenId != null) BF.q(await BF.sb.from('bf_eaten').delete().eq('id', eatenId));
+    });
+  });
+};
+
+BF.runningLow = async function (name) {
+  name = String(name == null ? '' : name).trim();
+  if (!name) return;
+  if (BF.onList(name)) {
+    BF.toast(name + ' is already on the list');
+    BF.renderFridge();
+    return;
+  }
+  var gid = await BF.run(async function () {
+    var g = BF.q(await BF.sb.from('bf_groceries').insert({ name: name }).select('id').single());
+    return g ? g.id : null;
+  });
+  if (gid === false) return;
+  BF.toast(name + ' \u2192 shopping list', function () {
+    BF.run(async function () { BF.q(await BF.sb.from('bf_groceries').delete().eq('id', gid)); });
+  });
+};
+
+/* ---------- bulk add (fridge + groceries share the sheet) ---------- */
+BF.bulkSheet = function (opts) {
+  var st = { location: 'fridge' };
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', opts.title));
+    var form = BF.el('div', 'bf-form');
+    form.appendChild(BF.el('p', 'bf-hint', 'One item per line. You can sort them out later.'));
+    var ta = BF.input({ tag: 'textarea', placeholder: 'Carrots\n\u1000\u103C\u1000\u103A\u1025\nYogurt' });
+    ta.rows = 6;
+    form.appendChild(BF.labelled(opts.label, ta, true));
+    if (opts.where) {
+      form.appendChild(BF.pillGroup('Where', BF.LOCATIONS,
+        function () { return st.location; }, function (v) { st.location = v; }));
+    }
+    var go = BF.button('', 'bf-btn-gold bf-btn-wide');
+    var sync = function () {
+      var n = BF.cleanLines(ta.value).length;
+      go.textContent = 'Add ' + BF.plural(n, 'item', 'items');
+      go.disabled = n === 0;
+    };
+    ta.addEventListener('input', sync);
+    sync();
+    go.addEventListener('click', function () {
+      var lines = BF.cleanLines(ta.value);
+      if (!lines.length) return;
+      BF.closeSheet();
+      opts.submit(lines, st.location);
+    });
+    form.appendChild(go);
+    box.appendChild(form);
+  });
+};
+
+BF.openBulkItems = function () {
+  BF.bulkSheet({
+    title: 'Bulk add',
+    label: 'Items to add, one per line',
+    where: true,
+    submit: async function (lines, location) {
+      var rows = lines.map(function (n) {
+        return { name: n, location: location, ready: false, leftover: false };
+      });
+      var ok = await BF.run(async function () { BF.q(await BF.sb.from('bf_items').insert(rows)); });
+      if (ok) BF.toast('Added ' + BF.plural(rows.length, 'item', 'items'));
+    }
+  });
+};
+
+BF.openBulkGroceries = function () {
+  BF.bulkSheet({
+    title: 'Paste a list',
+    label: 'Things to buy, one per line',
+    where: false,
+    submit: async function (lines) {
+      var fresh = [];
+      var skipped = 0;
+      lines.forEach(function (n) {
+        var dup = BF.onList(n) || fresh.some(function (f) { return BF.sameName(f, n); });
+        if (dup) skipped++;
+        else fresh.push(n);
+      });
+      var ok = true;
+      if (fresh.length) {
+        ok = await BF.run(async function () {
+          BF.q(await BF.sb.from('bf_groceries').insert(fresh.map(function (n) { return { name: n }; })));
+        });
+      }
+      if (!ok) return;
+      var msg = 'Added ' + fresh.length;
+      if (skipped) msg += ' (' + skipped + (skipped === 1 ? ' was' : ' were') + ' already on the list)';
+      BF.toast(msg);
+    }
+  });
+};
+
+/* ---------- shop tab ---------- */
+BF.buildShopUI = function () {
+  var body = BF.$('bf-tab-shop-body');
+  body.classList.add('bf-stack');
+  var form = BF.el('form', 'bf-toolbar');
+  form.setAttribute('autocomplete', 'off');
+  var add = BF.input({ id: 'bf-shop-add', placeholder: 'Add to the list...', suggest: true });
+  add.enterKeyHint = 'done';
+  var aw = BF.labelled('Add to the list', add, true);
+  aw.style.flex = '1 1 auto';
+  aw.style.minWidth = '0';
+  form.appendChild(aw);
+  var addBtn = BF.el('button', 'bf-btn bf-btn-gold', 'Add');
+  addBtn.type = 'submit';
+  form.appendChild(addBtn);
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    BF.addGrocery(add);
+  });
+  var paste = BF.button('Paste a list', 'bf-btn-ghost bf-btn-sm', BF.openBulkGroceries);
+  paste.style.alignSelf = 'flex-start';
+  var list = BF.el('div', 'bf-stack');
+  body.appendChild(form);
+  body.appendChild(paste);
+  body.appendChild(list);
+  BF.shopUI = { add: add, list: list };
+  return BF.shopUI;
+};
+
+BF.addGrocery = async function (field) {
+  var name = field.value.trim();
+  if (!name) return;
+  if (BF.onList(name)) {
+    BF.toast(name + ' is already on the list');
+    return;
+  }
+  var ok = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_groceries').insert({ name: name }));
+  });
+  if (ok) {
+    if (BF.sameName(field.value, name)) field.value = '';
+    field.focus();
+  }
+};
+
+BF.groceryRow = function (g) {
+  var name = String(g.name == null ? '' : g.name);
+  var row = BF.el('div', 'bf-row');
+  var main = BF.el('div', 'bf-row-main');
+  var nb = BF.el('button', 'bf-textbtn', name);
+  nb.type = 'button';
+  nb.addEventListener('click', function () { BF.openGrocerySheet(g.id); });
+  main.appendChild(nb);
+  if (g.notes) main.appendChild(BF.el('div', 'bf-meta', g.notes));
+  row.appendChild(main);
+  var acts = BF.el('div', 'bf-row-acts');
+  acts.appendChild(BF.button('Don\'t stock', 'bf-btn-ghost bf-btn-sm bf-btn-xs', function (e) {
+    e.currentTarget.disabled = true;
+    BF.bought(g.id, false);
+  }, 'Bought ' + name + ', don\'t stock it'));
+  acts.appendChild(BF.button('Bought', 'bf-btn-primary bf-btn-sm', function (e) {
+    e.currentTarget.disabled = true;
+    BF.bought(g.id, true);
+  }, 'Bought ' + name));
+  row.appendChild(acts);
+  return row;
+};
+
+BF.recentRow = function (g) {
+  var name = String(g.name == null ? '' : g.name);
+  var row = BF.el('div', 'bf-row');
+  var main = BF.el('div', 'bf-row-main');
+  var nm = BF.el('div', 'bf-textbtn', name);
+  nm.style.cursor = 'default';
+  nm.style.display = 'flex';
+  nm.style.alignItems = 'center';
+  main.appendChild(nm);
+  var when = g.bought_at ? BF.expiryText(BF.ymd(new Date(g.bought_at))) : null;
+  if (when) main.appendChild(BF.el('div', 'bf-meta', 'bought ' + when));
+  row.appendChild(main);
+  var acts = BF.el('div', 'bf-row-acts');
+  acts.appendChild(BF.button('Re-add', 'bf-btn-sm', function (e) {
+    e.currentTarget.disabled = true;
+    BF.reAdd(g.id);
+  }, 'Re-add ' + name));
+  row.appendChild(acts);
+  return row;
+};
+
+BF.renderShop = function () {
+  var ui = BF.shopUI || BF.buildShopUI();
+  var list = ui.list;
+  list.replaceChildren();
+  if (!BF.data.loaded) return;
+
+  var g = BF.el('section', 'bf-group');
+  g.appendChild(BF.groupHead('To buy'));
+  if (BF.data.groceries.length) {
+    var card = BF.el('div', 'bf-card bf-rows');
+    BF.data.groceries.forEach(function (x) { card.appendChild(BF.groceryRow(x)); });
+    g.appendChild(card);
+  } else {
+    g.appendChild(BF.emptyCard('List\'s empty. The Boss approves.'));
+  }
+  list.appendChild(g);
+
+  var recent = BF.data.bought;
+  if (!recent.length) return;
+  var tog = BF.el('button', 'bf-btn bf-btn-ghost bf-btn-wide bf-toggle');
+  tog.type = 'button';
+  tog.setAttribute('aria-expanded', BF._recentOpen ? 'true' : 'false');
+  tog.appendChild(BF.el('span', null, 'Recently bought (' + recent.length + ')'));
+  tog.appendChild(BF.el('span', 'bf-toggle-state', BF._recentOpen ? 'Hide' : 'Show'));
+  tog.addEventListener('click', function () {
+    BF._recentOpen = !BF._recentOpen;
+    BF.renderShop();
+    var again = BF.shopUI.list.querySelector('.bf-toggle');
+    if (again) again.focus();
+  });
+  list.appendChild(tog);
+  if (BF._recentOpen) {
+    var rc = BF.el('div', 'bf-card bf-rows');
+    recent.forEach(function (x) { rc.appendChild(BF.recentRow(x)); });
+    list.appendChild(rc);
+  }
+};
+
+/* ---------- grocery actions ---------- */
+BF.bought = async function (id, stock) {
+  var g = BF.findGrocery(id);
+  if (!g) return;
+  var itemId = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_groceries')
+      .update({ status: 'bought', bought_by: BF.myEmail(), bought_at: new Date().toISOString() })
+      .eq('id', id));
+    if (!stock) return null;
+    var it = BF.q(await BF.sb.from('bf_items').insert({ name: g.name, location: 'fridge' }).select('id').single());
+    return it ? it.id : null;
+  });
+  if (itemId === false) return;
+  BF.toast(stock ? g.name + ' \u2192 fridge' : g.name + ' bought', function () {
+    BF.run(async function () {
+      BF.q(await BF.sb.from('bf_groceries')
+        .update({ status: 'to_buy', bought_by: null, bought_at: null })
+        .eq('id', id));
+      if (itemId != null) BF.q(await BF.sb.from('bf_items').delete().eq('id', itemId));
+    });
+  });
+};
+
+BF.reAdd = async function (id) {
+  var g = BF.findGrocery(id);
+  if (!g) return;
+  if (BF.onList(g.name)) {
+    BF.toast(g.name + ' is already on the list');
+    BF.renderShop();
+    return;
+  }
+  var ok = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_groceries').insert({ name: g.name, notes: g.notes == null ? null : g.notes }));
+  });
+  if (ok) BF.toast(g.name + ' is back on the list');
+};
+
+BF.openGrocerySheet = function (id) {
+  var old = BF.findGrocery(id);
+  if (!old) return;
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', String(old.name == null ? '' : old.name)));
+    var form = BF.el('div', 'bf-form');
+    var nameIn = BF.input({ value: old.name == null ? '' : old.name, suggest: true });
+    var nameWrap = BF.labelled('Name', nameIn);
+    var err = BF.el('p', 'bf-err', 'Needs a name');
+    err.hidden = true;
+    err.setAttribute('role', 'alert');
+    nameWrap.appendChild(err);
+    nameIn.addEventListener('input', function () { err.hidden = true; });
+    form.appendChild(nameWrap);
+    var notesIn = BF.input({ value: old.notes == null ? '' : old.notes, placeholder: 'brand, how much...' });
+    form.appendChild(BF.labelled('Notes', notesIn));
+    form.appendChild(BF.button('Save', 'bf-btn-gold bf-btn-wide', async function () {
+      var name = nameIn.value.trim();
+      if (!name) {
+        err.hidden = false;
+        BF.shake(nameIn);
+        nameIn.focus();
+        return;
+      }
+      BF.closeSheet();
+      var ok = await BF.run(async function () {
+        BF.q(await BF.sb.from('bf_groceries').update({ name: name, notes: notesIn.value.trim() || null }).eq('id', id));
+      });
+      if (ok) BF.toast('Saved ' + name);
+    }));
+    form.appendChild(BF.button('Delete', 'bf-btn-ghost bf-btn-wide', async function () {
+      BF.closeSheet();
+      var ok = await BF.run(async function () {
+        BF.q(await BF.sb.from('bf_groceries').delete().eq('id', id));
+      });
+      if (ok) BF.toast('Deleted ' + old.name, function () {
+        BF.run(async function () { BF.q(await BF.sb.from('bf_groceries').insert(old)); });
+      });
+    }));
+    box.appendChild(form);
+  });
 };
 
 BF.init();
