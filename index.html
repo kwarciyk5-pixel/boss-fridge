@@ -417,6 +417,10 @@ input[type="date"].bf-field { width: auto; min-width: 170px; display: inline-blo
 .bf-file-btn:focus-within { outline: 3px solid var(--bf-blue); outline-offset: 3px; }
 .bf-json { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; font-weight: 500; }
 
+/* ---------- batch B3: history ---------- */
+.bf-linkrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.bf-hist-name { font-weight: 800; overflow-wrap: anywhere; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -534,7 +538,7 @@ input[type="date"].bf-field { width: auto; min-width: 170px; display: inline-blo
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v3';
+var BF_VERSION = 'bf-v4';
 
 var BF = {
   sb: null,
@@ -2468,6 +2472,214 @@ BF.openImport = function () {
 
 BF.openAccount = BF.openSettings;
 BF.$('bf-settings-btn').addEventListener('click', BF.openSettings);
+
+/* ===================== batch B3: history + recently bought ===================== */
+BF.HISTORY_DAYS = 30;
+BF.HISTORY_TEXT = { ate: 'Ate it', deleted: 'Deleted', bought: 'Bought', bought_nostock: 'Bought, not stocked', tossed: 'Tossed', ate_dish: 'We ate this' };
+
+/* Write one history row. Never fatal: returns the new id, or null if it could not be saved. */
+BF.logHistory = async function (action, label, data) {
+  try {
+    var r = await BF.sb.from('bf_history')
+      .insert({ action: action, label: String(label == null ? '' : label), data: data || {} })
+      .select('id').single();
+    if (r.error) { console.warn('history not saved', r.error); return null; }
+    return r.data ? r.data.id : null;
+  } catch (e) {
+    console.warn('history not saved', e);
+    return null;
+  }
+};
+
+/* "just now" / "5 min ago" / "3 hours ago" / "yesterday" / "4 days ago" */
+BF.ago = function (ts) {
+  if (!ts) return '';
+  var t = new Date(ts);
+  var mins = Math.floor((Date.now() - t.getTime()) / 60000);
+  if (!(mins >= 0)) return '';
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + ' min ago';
+  if (mins < 24 * 60 && BF.ymd(t) === BF.today()) return BF.plural(Math.floor(mins / 60), 'hour', 'hours') + ' ago';
+  return BF.expiryText(BF.ymd(t)) || '';
+};
+
+/* Undo one history entry h = { id, action, label, data }. Used by History and by every Undo toast. */
+BF.putBack = async function (h) {
+  if (!h) return false;
+  var d = h.data || {};
+  var ok = await BF.run(async function () {
+    if (h.action === 'ate' || h.action === 'deleted') {
+      var old = d.item;
+      if (old && old.id != null) {
+        var cur = BF.findItem(old.id);
+        if (h.action === 'ate' && d.decrement && cur) {
+          if (cur.count != null) BF.q(await BF.sb.from('bf_items').update({ count: cur.count + 1 }).eq('id', old.id));
+        } else if (!cur) {
+          var row = Object.assign({}, old);
+          if (h.action === 'ate' && d.decrement) row.count = 1;
+          BF.q(await BF.sb.from('bf_items').insert(row));
+        }
+      }
+      if (h.action === 'ate' && d.eaten_id != null) BF.q(await BF.sb.from('bf_eaten').delete().eq('id', d.eaten_id));
+    } else if (h.action === 'bought' || h.action === 'bought_nostock') {
+      if (!BF.onList(h.label)) {
+        var up = d.grocery_id == null ? [] : BF.q(await BF.sb.from('bf_groceries')
+          .update({ status: 'to_buy', bought_by: null, bought_at: null })
+          .eq('id', d.grocery_id).select('id'));
+        if (!up || !up.length) BF.q(await BF.sb.from('bf_groceries').insert({ name: h.label }));
+      }
+      if (d.item_id != null && BF.findItem(d.item_id)) BF.q(await BF.sb.from('bf_items').delete().eq('id', d.item_id));
+    }
+    if (h.id != null) BF.q(await BF.sb.from('bf_history').delete().eq('id', h.id));
+  });
+  if (ok) BF.toast(h.label + (h.action === 'bought' || h.action === 'bought_nostock' ? ' is back on the list' : ' is back'));
+  return ok;
+};
+
+/* ---------- replacements: same behaviour as batch B, plus a history row; Undo goes through BF.putBack ---------- */
+BF.ateIt = async function (id) {
+  var old = BF.findItem(id);
+  if (!old) return;
+  var decrement = old.count != null && old.count > 1;
+  var h = { id: null, action: 'ate', label: old.name, data: { item: old, decrement: decrement, eaten_id: null } };
+  var res = await BF.run(async function () {
+    if (decrement) BF.q(await BF.sb.from('bf_items').update({ count: old.count - 1 }).eq('id', id));
+    else BF.q(await BF.sb.from('bf_items').delete().eq('id', id));
+    var eaten = BF.q(await BF.sb.from('bf_eaten')
+      .insert({ item_name: old.name, dish_id: old.dish_id == null ? null : old.dish_id })
+      .select('id').single());
+    h.data.eaten_id = eaten ? eaten.id : null;
+    h.id = await BF.logHistory('ate', old.name, h.data);
+  });
+  if (res === false) return;
+  BF.toast('Ate ' + old.name, function () { BF.putBack(h); });
+};
+
+BF.deleteItem = async function (id) {
+  var old = BF.findItem(id);
+  if (!old) return;
+  var h = { id: null, action: 'deleted', label: old.name, data: { item: old } };
+  var res = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_items').delete().eq('id', id));
+    h.id = await BF.logHistory('deleted', old.name, h.data);
+  });
+  if (res === false) return;
+  BF.toast('Deleted ' + old.name, function () { BF.putBack(h); });
+};
+
+BF.bought = async function (id, stock) {
+  var g = BF.findGrocery(id);
+  if (!g) return;
+  var action = stock ? 'bought' : 'bought_nostock';
+  var h = { id: null, action: action, label: g.name, data: { grocery_id: id, item_id: null } };
+  var res = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_groceries')
+      .update({ status: 'bought', bought_by: BF.myEmail(), bought_at: new Date().toISOString() })
+      .eq('id', id));
+    if (stock) {
+      var it = BF.q(await BF.sb.from('bf_items').insert({ name: g.name, location: 'fridge' }).select('id').single());
+      h.data.item_id = it ? it.id : null;
+    }
+    h.id = await BF.logHistory(action, g.name, h.data);
+  });
+  if (res === false) return;
+  BF.toast(stock ? g.name + ' \u2192 fridge' : g.name + ' bought', function () { BF.putBack(h); });
+};
+
+/* ---------- recently bought: hide names on the to-buy list, one row per name (newest) ---------- */
+var _bfRenderShopB = BF.renderShop;
+BF.renderShop = function () {
+  if (!BF.data.loaded) return _bfRenderShopB.apply(this, arguments);
+  var all = BF.data.bought || [];
+  var seen = [];
+  BF.data.bought = all.filter(function (g) {
+    if (BF.onList(g.name)) return false;
+    if (seen.some(function (n) { return BF.sameName(n, g.name); })) return false;
+    seen.push(g.name);
+    return true;
+  });
+  try { return _bfRenderShopB.apply(this, arguments); } finally { BF.data.bought = all; }
+};
+
+/* ---------- History buttons on Fridge and Shop ---------- */
+BF.historyButton = function () {
+  return BF.button('History', 'bf-btn-ghost bf-btn-sm', BF.openHistory, 'History: what was eaten, deleted or bought');
+};
+
+var _bfBuildFridgeB = BF.buildFridgeUI;
+BF.buildFridgeUI = function () {
+  var ui = _bfBuildFridgeB.apply(this, arguments);
+  var row = BF.el('div', 'bf-linkrow');
+  row.appendChild(BF.historyButton());
+  var body = BF.$('bf-tab-fridge-body');
+  body.insertBefore(row, ui.list);
+  return ui;
+};
+
+var _bfBuildShopB = BF.buildShopUI;
+BF.buildShopUI = function () {
+  var ui = _bfBuildShopB.apply(this, arguments);
+  var body = BF.$('bf-tab-shop-body');
+  var row = BF.el('div', 'bf-linkrow');
+  var paste = Array.prototype.filter.call(body.children, function (c) {
+    return c.tagName === 'BUTTON' && c.textContent === 'Paste a list';
+  })[0];
+  body.insertBefore(row, ui.list);
+  if (paste && paste.parentNode === body) row.appendChild(paste);
+  row.appendChild(BF.historyButton());
+  return ui;
+};
+
+/* ---------- History sheet ---------- */
+BF.fetchHistory = async function () {
+  var since = new Date(Date.now() - BF.HISTORY_DAYS * 86400000).toISOString();
+  var r = await BF.sb.from('bf_history').select('*').gte('done_at', since)
+    .order('done_at', { ascending: false }).limit(300);
+  if (r.error) throw r.error;
+  return r.data || [];
+};
+
+BF.historyRow = function (h) {
+  var name = String(h.label == null ? '' : h.label);
+  var row = BF.el('div', 'bf-row');
+  var main = BF.el('div', 'bf-row-main');
+  main.appendChild(BF.el('div', 'bf-hist-name', name));
+  var what = BF.HISTORY_TEXT[h.action] || String(h.action || '');
+  var when = BF.ago(h.done_at);
+  main.appendChild(BF.el('div', 'bf-meta', when ? what + ' \u00B7 ' + when : what));
+  row.appendChild(main);
+  if (h.action === 'ate' || h.action === 'deleted' || h.action === 'bought' || h.action === 'bought_nostock') {
+    var acts = BF.el('div', 'bf-row-acts');
+    acts.appendChild(BF.button('Put back', 'bf-btn-sm', function (e) {
+      e.currentTarget.disabled = true;
+      BF.closeSheet();
+      BF.putBack(h);
+    }, 'Put back ' + name));
+    row.appendChild(acts);
+  }
+  return row;
+};
+
+BF.openHistory = function () {
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'History'));
+    box.appendChild(BF.el('p', 'bf-hint', 'The last ' + BF.HISTORY_DAYS + ' days. Put back undoes it.'));
+    var status = BF.el('p', 'bf-hint', 'Loading\u2026');
+    box.appendChild(status);
+    var list = BF.el('div', 'bf-card bf-rows');
+    list.hidden = true;
+    box.appendChild(list);
+    BF.fetchHistory().then(function (rows) {
+      if (!rows.length) { status.textContent = 'Nothing yet. Eaten, deleted and bought things show up here.'; return; }
+      status.hidden = true;
+      rows.forEach(function (h) { list.appendChild(BF.historyRow(h)); });
+      list.hidden = false;
+    }).catch(function (e) {
+      console.warn('history load failed', e);
+      status.textContent = 'Couldn\'t load history. Check your connection.';
+    });
+  });
+};
 
 BF.init();
 </script>
