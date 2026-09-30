@@ -770,6 +770,34 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 .bf-nom-main .bf-nom-name { flex: 0 1 auto; }
 .bf-nom-who { font-size: 13px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* ---------- batch L: recipes ---------- */
+.bf-line-recipe { flex: 0 0 auto; font-size: 13px; line-height: 1; }
+.bf-recipe-part { margin-top: 4px; }
+.bf-recipe-ings, .bf-recipe-steps { padding: 4px 14px; }
+.bf-recipe-ing { display: flex; align-items: center; gap: 10px; min-height: 42px; border-top: 1.5px dashed var(--bf-line); }
+.bf-recipe-ing:first-child { border-top: 0; }
+.bf-recipe-mark { flex: 0 0 18px; text-align: center; font-weight: 900; color: var(--bf-muted); }
+.bf-recipe-ing.is-have .bf-recipe-mark { color: var(--bf-blue); }
+.bf-recipe-ing-name { flex: 1 1 auto; min-width: 0; font-weight: 800; font-size: 15px; overflow-wrap: anywhere; }
+.bf-recipe-ing.is-have .bf-recipe-ing-name { color: var(--bf-muted); }
+.bf-recipe-step {
+  display: flex; align-items: flex-start; gap: 12px; width: 100%; margin: 0; padding: 10px 0;
+  border: 0; border-top: 1.5px dashed var(--bf-line); background: transparent; color: var(--bf-ink);
+  font-family: var(--bf-font); text-align: left; cursor: pointer;
+}
+.bf-recipe-step:first-child { border-top: 0; }
+.bf-recipe-step:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 2px; border-radius: 6px; }
+.bf-recipe-num {
+  flex: 0 0 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border: 2px solid var(--bf-ink); border-radius: 50%; background: var(--bf-goldsoft);
+  font-weight: 900; font-size: 13px; color: var(--bf-ink);
+}
+.bf-recipe-text { flex: 1 1 auto; min-width: 0; padding-top: 3px; font-weight: 700; font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; }
+.bf-recipe-step.is-done .bf-recipe-num { background: var(--bf-ice); }
+.bf-recipe-step.is-done .bf-recipe-text { text-decoration: line-through; color: var(--bf-muted); }
+.bf-recipe-link { text-decoration: none; display: flex; align-items: center; justify-content: center; }
+.bf-recipe-fields { gap: 16px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -906,7 +934,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v20';
+var BF_VERSION = 'bf-v21';
 
 var BF = {
   sb: null,
@@ -7576,6 +7604,540 @@ BF.openSheet = function () {
   var layer = BF.$('bf-toast-layer');
   if (layer) layer.classList.add('is-top');
   return out;
+};
+
+/* ===================== batch L: recipes on home-cooked dishes + names stay in step ===================== */
+
+/* ---------- data: bf_dishes.steps (text[]) and bf_dishes.recipe_url ---------- */
+BF.COLUMNS.bf_dishes.push('steps', 'recipe_url');
+
+var _bfRowProblemL = BF.rowProblem;
+BF.rowProblem = function (t, r) {
+  if (t === 'bf_dishes') {
+    if (r.steps == null) delete r.steps;
+    else if (!Array.isArray(r.steps) || !r.steps.every(function (x) { return typeof x === 'string'; })) return 'bad steps';
+    if (r.recipe_url === '') r.recipe_url = null;
+    if (r.recipe_url != null && typeof r.recipe_url !== 'string') return 'bad recipe link';
+  }
+  return _bfRowProblemL.apply(this, arguments);
+};
+
+BF.stepsOf = function (d) {
+  return d && Array.isArray(d.steps) ? d.steps.filter(function (x) { return typeof x === 'string' && x.trim(); }) : [];
+};
+BF.recipeLink = function (d) {
+  var u = String((d && d.recipe_url) || '').trim();
+  return /^https?:\/\/\S+$/i.test(u) ? u : '';
+};
+BF.hasRecipe = function (d) { return !!d && (BF.stepsOf(d).length > 0 || !!BF.recipeLink(d)); };
+
+/* ---------- recipe sheet: ingredients (have / + Shop), steps to tick off, the link ---------- */
+BF.openRecipe = function (id) {
+  var d = BF.findDish(id);
+  if (!d) return;
+  var name = String(d.name == null ? '' : d.name);
+  var names = BF.data.items.map(function (it) { return BF.norm(it.name); }).filter(Boolean);
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', name));
+    var meta = [BF.kindLabel(d.kind) || 'Dish'];
+    var had = BF.hadText(d);
+    if (had) meta.push(had);
+    box.appendChild(BF.el('p', 'bf-hint bf-act-meta', meta.join(' \u00B7 ')));
+
+    var ings = BF.ingredientsOf(d);
+    if (ings.length) {
+      var g = BF.el('section', 'bf-group bf-recipe-part');
+      g.appendChild(BF.groupHead('Ingredients'));
+      var list = BF.el('div', 'bf-card bf-recipe-ings');
+      ings.forEach(function (x) {
+        var have = BF.haveIngredient(x, names);
+        var r = BF.el('div', 'bf-recipe-ing' + (have ? ' is-have' : ''));
+        r.appendChild(BF.el('span', 'bf-recipe-mark', have ? '\u2713' : '\u00B7'));
+        r.appendChild(BF.el('span', 'bf-recipe-ing-name', x));
+        if (!have) {
+          var on = !!BF.onList(x);
+          var add = BF.button(on ? 'On list' : '+ Shop', 'bf-btn-sm bf-cook-add', function () {
+            add.disabled = true;
+            add.textContent = 'On list';
+            BF.runningLow(x);
+          }, 'Add ' + x + ' to the shopping list');
+          add.disabled = on;
+          r.appendChild(add);
+        }
+        list.appendChild(r);
+      });
+      g.appendChild(list);
+      box.appendChild(g);
+    }
+
+    var steps = BF.stepsOf(d);
+    if (steps.length) {
+      var s = BF.el('section', 'bf-group bf-recipe-part');
+      s.appendChild(BF.groupHead('Steps', 'tap to tick off'));
+      var ol = BF.el('div', 'bf-card bf-recipe-steps');
+      steps.forEach(function (x, i) {
+        var b = BF.el('button', 'bf-recipe-step');
+        b.type = 'button';
+        b.setAttribute('aria-pressed', 'false');
+        var num = BF.el('span', 'bf-recipe-num', String(i + 1));
+        b.appendChild(num);
+        b.appendChild(BF.el('span', 'bf-recipe-text', x));
+        b.addEventListener('click', function () {
+          var done = !b.classList.contains('is-done');
+          b.classList.toggle('is-done', done);
+          b.setAttribute('aria-pressed', done ? 'true' : 'false');
+          num.textContent = done ? '\u2713' : String(i + 1);
+        });
+        ol.appendChild(b);
+      });
+      s.appendChild(ol);
+      box.appendChild(s);
+    }
+
+    var acts = BF.el('div', 'bf-act-list');
+    var link = BF.recipeLink(d);
+    if (link) {
+      var a = BF.el('a', 'bf-btn bf-btn-wide bf-recipe-link', 'Open the recipe link \u2197');
+      a.href = link;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      acts.appendChild(a);
+    }
+    if (!ings.length && !steps.length && !link) acts.appendChild(BF.el('p', 'bf-hint', 'No recipe yet \u2013 add steps with Edit.'));
+    acts.appendChild(BF.button('We ate this', 'bf-btn-primary bf-btn-wide', function () { BF.closeSheet(); BF.weAteThis(id); }));
+    acts.appendChild(BF.button('Edit', 'bf-btn-ghost bf-btn-wide', function () { BF.openDishSheet(id); }));
+    box.appendChild(acts);
+  });
+};
+
+/* Dish actions: a Recipe button first when the dish has one. */
+var _bfOpenDishActionsL = BF.openDishActions;
+BF.openDishActions = function (id) {
+  _bfOpenDishActionsL.apply(this, arguments);
+  var d = BF.findDish(id);
+  var list = document.querySelector('#bf-sheet-body .bf-act-list');
+  if (!d || !list || !BF.hasRecipe(d)) return;
+  list.insertBefore(BF.button('\uD83D\uDCD6 Recipe', 'bf-btn-gold bf-btn-wide', function () { BF.openRecipe(id); }), list.firstChild);
+};
+
+/* Library lines: a book after the name when there's a recipe. */
+var _bfDishLineL = BF.dishLine;
+BF.dishLine = function (d) {
+  var line = _bfDishLineL.apply(this, arguments);
+  if (BF.hasRecipe(d)) {
+    var nm = line.querySelector('.bf-line-name');
+    var bk = BF.el('span', 'bf-line-recipe', '\uD83D\uDCD6');
+    bk.setAttribute('role', 'img');
+    bk.setAttribute('aria-label', 'has a recipe');
+    if (nm && nm.parentNode) nm.parentNode.insertBefore(bk, nm.nextSibling);
+  }
+  return line;
+};
+
+BF.LIB_FILTERS = [['all', 'All'], ['fav', '\u2605'], ['while', 'Not lately'], ['recipe', 'Recipe'], ['ready', 'Ready'], ['home', 'Home'], ['takeout', 'Takeout'], ['ingredient', 'Pantry']];
+
+/* ---------- Library (replaces batch J's): a Recipe filter ---------- */
+BF.renderLibrary = function () {
+  var ui = BF.libUI || BF.buildLibraryUI();
+  BF.applyFavs();
+  ui.fbtns.forEach(function (b) {
+    var on = b._val === BF._libFilter;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  var list = ui.list;
+  list.replaceChildren();
+  if (!BF.lib.loaded) {
+    if (BF.lib.error) list.appendChild(BF.emptyCard('Couldn\'t load the library. Reopen the app to retry.'));
+    return;
+  }
+  var banner = BF.linkBanner();
+  if (banner) list.appendChild(banner);
+  var all = BF.lib.dishes.slice().sort(BF.byStars);
+  if (!all.length) {
+    list.appendChild(BF.emptyCard('No dishes yet. Add one with +, or Paste a list.'));
+    return;
+  }
+  var f = BF._libFilter;
+  var kinds = BF.KINDS.map(function (k) { return k[0]; });
+  var shown = all.filter(function (d) {
+    if (f === 'fav') return !!d.favourite;
+    if (f === 'while') return d.kind !== 'ingredient' && BF.haventHad(d);
+    if (f === 'recipe') return BF.hasRecipe(d);
+    if (kinds.indexOf(f) >= 0) return (d.kind || 'home') === f;
+    return true;
+  });
+  var needle = ui.search.value.trim().toLowerCase();
+  if (needle) shown = shown.filter(function (d) { return String(d.name == null ? '' : d.name).toLowerCase().indexOf(needle) >= 0; });
+  if (!shown.length) {
+    var msg = needle ? 'Nothing matches.'
+      : f === 'fav' ? 'No favourites yet. Tap the star on a dish.'
+      : f === 'while' ? 'Nothing here \u2013 you\'ve had everything lately.'
+      : f === 'recipe' ? 'No recipes yet. Open a home-cooked dish, Edit, and add steps or a link.'
+      : 'Nothing of this kind yet.';
+    list.appendChild(BF.emptyCard(msg));
+    return;
+  }
+  var forceOpen = !!needle || kinds.indexOf(f) >= 0 || f === 'recipe';
+  BF.KINDS.forEach(function (k) {
+    var rows = shown.filter(function (d) { return (d.kind || 'home') === k[0]; });
+    if (!rows.length) return;
+    list.appendChild(BF.note('lib:' + k[0], k[1], rows.map(BF.dishLine), BF.NOTE_TONE[k[0]], forceOpen));
+  });
+  var other = shown.filter(function (d) { return kinds.indexOf(d.kind || 'home') < 0; });
+  if (other.length) list.appendChild(BF.note('lib:other', 'Other', other.map(BF.dishLine), 'ice', !!needle));
+};
+
+/* ---------- dish sheet (replaces batch C's): recipe fields for home-cooked dishes; a rename carries to its items ---------- */
+BF.openDishSheet = function (id) {
+  var old = id == null ? null : BF.findDish(id);
+  if (id != null && !old) return;
+  var st = { kind: old && BF.kindLabel(old.kind) ? old.kind : 'home' };
+  BF.openSheet(function (box) {
+    var name0 = old ? String(old.name == null ? '' : old.name) : '';
+    box.appendChild(BF.el('h2', 'bf-sheet-title', old ? name0 : 'Add a dish'));
+    var form = BF.el('div', 'bf-form');
+
+    if (old) {
+      var last = BF.lastHad(old);
+      var ago = last ? BF.ago(last) : '';
+      form.appendChild(BF.el('p', 'bf-hint', ago ? 'Last had ' + ago : 'Not had yet'));
+      var top = BF.el('div', 'bf-sheet-acts');
+      if (BF.hasRecipe(old)) top.appendChild(BF.button('\uD83D\uDCD6 Recipe', 'bf-btn-gold', function () { BF.openRecipe(old.id); }));
+      top.appendChild(BF.button('We ate this', 'bf-btn-primary', function () { BF.closeSheet(); BF.weAteThis(old.id); }));
+      form.appendChild(top);
+      var here = BF.inHouse(old);
+      if (here.length) {
+        var g = BF.el('section', 'bf-group');
+        g.appendChild(BF.groupHead('In the house'));
+        var card = BF.el('div', 'bf-card bf-rows');
+        here.forEach(function (it) {
+          var iname = String(it.name == null ? '' : it.name);
+          var r = BF.el('div', 'bf-row');
+          var m = BF.el('div', 'bf-row-main');
+          var nb = BF.el('button', 'bf-textbtn', iname);
+          nb.type = 'button';
+          nb.addEventListener('click', function () { BF.openItemSheet(it.id); });
+          m.appendChild(nb);
+          var meta = [BF.locLabel(it.location)];
+          if (it.count != null) meta.push('\u00D7' + it.count);
+          var ex = BF.expiryText(it.expiry);
+          if (ex) meta.push(ex);
+          m.appendChild(BF.el('div', 'bf-meta', meta.join(' \u00B7 ')));
+          r.appendChild(m);
+          var acts = BF.el('div', 'bf-row-acts');
+          acts.appendChild(BF.button('Ate it', 'bf-btn-primary bf-btn-sm', function () {
+            BF.closeSheet();
+            BF.ateIt(it.id);
+          }, 'Ate it: ' + iname));
+          r.appendChild(acts);
+          card.appendChild(r);
+        });
+        g.appendChild(card);
+        form.appendChild(g);
+      }
+    }
+
+    var nameIn = BF.input({ placeholder: 'e.g. Mohinga', value: name0 });
+    var nameWrap = BF.labelled('Name', nameIn);
+    var err = BF.el('p', 'bf-err', '');
+    err.hidden = true;
+    err.setAttribute('role', 'alert');
+    nameWrap.appendChild(err);
+    nameIn.addEventListener('input', function () { err.hidden = true; });
+    form.appendChild(nameWrap);
+
+    var recipe = BF.el('div', 'bf-form bf-recipe-fields');
+    var kindFs = BF.pillGroup('Kind', BF.KINDS, function () { return st.kind; }, function (v) { st.kind = v; syncKind(); });
+    form.appendChild(kindFs);
+
+    var ingIn = BF.input({ tag: 'textarea', placeholder: 'Pork\nGarlic\nRice', value: old ? BF.ingredientsOf(old).join('\n') : '' });
+    ingIn.rows = 4;
+    form.appendChild(BF.labelled('Ingredients (optional, one per line)', ingIn));
+
+    var stepsIn = BF.input({ tag: 'textarea', placeholder: 'Wash the rice\nFry the garlic\nAdd the pork, 10 min', value: old ? BF.stepsOf(old).join('\n') : '' });
+    stepsIn.rows = 5;
+    recipe.appendChild(BF.labelled('Recipe steps (optional, one per line)', stepsIn));
+    var linkIn = BF.input({ type: 'url', placeholder: 'https://\u2026 (YouTube, a website)', value: old && old.recipe_url ? String(old.recipe_url) : '' });
+    var linkWrap = BF.labelled('Recipe link (optional)', linkIn);
+    var linkErr = BF.el('p', 'bf-err', 'Starts with https://');
+    linkErr.hidden = true;
+    linkWrap.appendChild(linkErr);
+    linkIn.addEventListener('input', function () { linkErr.hidden = true; });
+    recipe.appendChild(linkWrap);
+    form.appendChild(recipe);
+    var syncKind = function () { recipe.hidden = st.kind !== 'home'; };
+    syncKind();
+
+    var notesIn = BF.input({ value: old && old.notes != null ? String(old.notes) : '' });
+    form.appendChild(BF.labelled('Notes (optional)', notesIn));
+
+    var save = BF.button(old ? 'Save' : 'Add dish', 'bf-btn-gold bf-btn-wide');
+    save.addEventListener('click', async function () {
+      var name = nameIn.value.trim();
+      var problem = !name ? 'Needs a name' : (BF.dishByName(name, old ? old.id : null) ? 'Already in the library' : '');
+      if (problem) {
+        err.textContent = problem;
+        err.hidden = false;
+        BF.shake(nameIn);
+        nameIn.focus();
+        return;
+      }
+      var link = linkIn.value.trim();
+      if (link && !/^https?:\/\/\S+$/i.test(link)) {
+        if (/^[\w-]+(\.[\w-]+)+\S*$/.test(link)) link = 'https://' + link;
+        else { linkErr.hidden = false; BF.shake(linkIn); linkIn.focus(); return; }
+      }
+      var row = {
+        name: name,
+        kind: st.kind,
+        ingredients: BF.uniqueLines(ingIn.value),
+        steps: BF.cleanSteps(stepsIn.value),
+        recipe_url: link || null,
+        notes: notesIn.value.trim() || null
+      };
+      // Items linked to this dish that still carry its old name take the new one.
+      var rename = old && !BF.sameName(old.name, name) ? BF.data.items.filter(function (it) {
+        return String(it.dish_id) === String(old.id) && BF.sameName(it.name, old.name);
+      }).map(function (it) { return it.id; }) : [];
+      var ok = await BF.sheetSave(save, async function () {
+        if (old) BF.q(await BF.sb.from('bf_dishes').update(row).eq('id', old.id));
+        else BF.q(await BF.sb.from('bf_dishes').insert(row));
+        for (var i = 0; i < rename.length; i += 100) {
+          BF.q(await BF.sb.from('bf_items').update({ name: name }).in('id', rename.slice(i, i + 100)));
+        }
+      });
+      if (ok) BF.toast(old ? 'Saved ' + name : 'Added ' + name);
+    });
+    form.appendChild(save);
+
+    if (old) {
+      form.appendChild(BF.button('Delete', 'bf-btn-ghost bf-btn-wide', function () {
+        BF.closeSheet();
+        BF.deleteDish(old.id);
+      }));
+    }
+    box.appendChild(form);
+  });
+};
+
+/* Steps: one per line, keeping order (repeats allowed); a leading "1." or "-" is dropped. */
+BF.cleanSteps = function (text) { return BF.cleanLines(text); };
+
+/* ---------- item sheet (replaces batch J's): renaming an item renames its same-named Library entry too ---------- */
+BF.openItemSheet = function (id) {
+  var old = id == null ? null : BF.findItem(id);
+  if (id != null && !old) return;
+  var st = old ? {
+    name: String(old.name == null ? '' : old.name),
+    count: old.count == null ? null : old.count,
+    location: old.location || null,
+    expiry: old.expiry ? String(old.expiry).slice(0, 10) : null,
+    ready: !!old.ready,
+    leftover: !!old.leftover,
+    notes: old.notes == null ? '' : String(old.notes),
+    dish_id: old.dish_id == null ? null : old.dish_id
+  } : { name: '', count: null, location: 'fridge', expiry: null, ready: false, leftover: false, notes: '', dish_id: null };
+  st.kind = null;          // chosen kind for a new Library entry (null = follow the guess)
+
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', old ? st.name : 'Add to the fridge'));
+    var form = BF.el('div', 'bf-form');
+
+    var nameIn = BF.input({ placeholder: 'e.g. Pork Curry', value: st.name, suggest: true });
+    var nameWrap = BF.labelled('Name', nameIn);
+    var err = BF.el('p', 'bf-err', 'Needs a name');
+    err.hidden = true;
+    err.setAttribute('role', 'alert');
+    nameWrap.appendChild(err);
+    form.appendChild(nameWrap);
+
+    // Count
+    var cfs = BF.el('fieldset', 'bf-fieldset');
+    cfs.appendChild(BF.el('legend', 'bf-label', 'Count'));
+    var counter = BF.el('div', 'bf-counter');
+    var val = BF.el('span', 'bf-counter-val');
+    val.setAttribute('aria-live', 'polite');
+    var showCount = function () { val.textContent = st.count == null ? '-' : String(st.count); };
+    counter.appendChild(BF.button('-', 'bf-square', function () {
+      if (st.count == null) return;
+      st.count = st.count <= 1 ? null : st.count - 1;
+      showCount();
+    }, 'One less'));
+    counter.appendChild(val);
+    counter.appendChild(BF.button('+', 'bf-square', function () {
+      st.count = st.count == null ? 1 : st.count + 1;
+      showCount();
+    }, 'One more'));
+    counter.appendChild(BF.button('clear', 'bf-btn-ghost bf-btn-sm', function () { st.count = null; showCount(); }, 'Clear count'));
+    showCount();
+    cfs.appendChild(counter);
+    form.appendChild(cfs);
+
+    // Where
+    var syncLib = function () {};
+    form.appendChild(BF.pillGroup('Where', BF.LOCATIONS,
+      function () { return st.location; }, function (v) { st.location = v; syncLib(); }));
+
+    // Goes off
+    var dateIn = BF.input({ type: 'date', value: st.expiry || '' });
+    dateIn.setAttribute('aria-label', 'Goes off on');
+    var offOpts = [[null, 'Not sure'], [0, 'Today'], [1, 'Tomorrow'], [3, '3 days'], [7, 'A week']];
+    var off = BF.pillGroup('Goes off', offOpts, function () {
+      if (!st.expiry) return null;
+      for (var i = 1; i < offOpts.length; i++) {
+        if (BF.addDays(offOpts[i][0]) === st.expiry) return offOpts[i][0];
+      }
+      return undefined;
+    }, function (v) {
+      st.expiry = v === null ? null : BF.addDays(v);
+      dateIn.value = st.expiry || '';
+    });
+    dateIn.addEventListener('change', function () { st.expiry = dateIn.value || null; off._sync(); });
+    off._row.appendChild(dateIn);
+    form.appendChild(off);
+
+    // Toggles
+    var tg = BF.el('div', 'bf-pills');
+    tg.appendChild(BF.togglePill('Ready to heat', function () { return st.ready; }, function (v) { st.ready = v; syncLib(); }));
+    tg.appendChild(BF.togglePill('Leftover', function () { return st.leftover; }, function (v) { st.leftover = v; syncLib(); }));
+    form.appendChild(tg);
+
+    // In the Library
+    var sel = document.createElement('select');
+    sel.className = 'bf-field';
+    var opt = function (value, text) {
+      var o = document.createElement('option');
+      o.value = value;
+      o.textContent = text;
+      sel.appendChild(o);
+    };
+    opt('', 'Same name');
+    BF.lib.dishes.slice().sort(BF.byName).forEach(function (d) {
+      opt(String(d.id), String(d.name == null ? '' : d.name) + ' (' + (BF.kindLabel(d.kind) || 'dish').toLowerCase() + ')');
+    });
+    if (st.dish_id != null && !BF.findDish(st.dish_id)) st.dish_id = null;
+    sel.value = st.dish_id == null ? '' : String(st.dish_id);
+    var libWrap = BF.labelled('In the Library', sel);
+    var libNote = BF.el('p', 'bf-hint', '');
+    libWrap.appendChild(libNote);
+    form.appendChild(libWrap);
+    var guess = function () {
+      return BF.guessKind([{ ready: st.ready, leftover: st.leftover, location: st.location }]);
+    };
+    var kindFs = BF.pillGroup('New in the Library as', BF.KINDS,
+      function () { return st.kind || guess(); }, function (v) { st.kind = v; });
+    form.appendChild(kindFs);
+    // The dish this item will point at (null = a new entry will be made).
+    var target = function () {
+      if (sel.value) return BF.findDish(sel.value);
+      var n = nameIn.value.trim();
+      return n ? BF.dishByName(n) : null;
+    };
+    syncLib = function () {
+      var d = target();
+      var n = nameIn.value.trim();
+      kindFs.hidden = !!d || !n;
+      if (d) libNote.textContent = (sel.value ? 'Linked to ' : 'Matches ') + d.name + ' (' + (BF.kindLabel(d.kind) || 'dish') + ').';
+      else libNote.textContent = n ? 'New name \u2013 it joins the Library when you save.' : 'Type a name \u2013 it links to the Library entry with that name.';
+      kindFs._sync();
+    };
+    sel.addEventListener('change', syncLib);
+    nameIn.addEventListener('input', function () { err.hidden = true; syncLib(); });
+    syncLib();
+
+    var notesIn = BF.input({ value: st.notes });
+    form.appendChild(BF.labelled('Notes (optional)', notesIn));
+
+    var save = BF.button('Save', 'bf-btn-gold bf-btn-wide');
+    save.addEventListener('click', async function () {
+      var name = nameIn.value.trim();
+      if (!name) {
+        err.hidden = false;
+        BF.shake(nameIn);
+        nameIn.focus();
+        return;
+      }
+      var row = {
+        name: name,
+        count: st.count,
+        location: st.location,
+        expiry: st.expiry,
+        ready: st.ready,
+        leftover: st.leftover,
+        notes: notesIn.value.trim() || null
+      };
+      var d = target();
+      var kind = st.kind || guess();
+      var follow = !!(old && d && String(old.dish_id) === String(d.id) && BF.sameName(old.name, d.name) &&
+        !BF.sameName(name, old.name) && !BF.dishByName(name, d.id));
+      var others = follow ? BF.data.items.filter(function (x) {
+        return x.id !== old.id && String(x.dish_id) === String(d.id) && BF.sameName(x.name, old.name);
+      }).map(function (x) { return x.id; }) : [];
+      var ok = await BF.sheetSave(save, async function () {
+        row.dish_id = d ? d.id : await BF.ensureDish(name, kind);
+        if (old) BF.q(await BF.sb.from('bf_items').update(row).eq('id', old.id));
+        else BF.q(await BF.sb.from('bf_items').insert(row));
+        // Renamed an item that carried its Library entry's name: the entry (and its other same-named items) follow.
+        if (follow) {
+          BF.q(await BF.sb.from('bf_dishes').update({ name: name }).eq('id', d.id));
+          if (others.length) BF.q(await BF.sb.from('bf_items').update({ name: name }).in('id', others));
+        }
+      });
+      if (ok) BF.toast(old ? 'Saved ' + name : 'Added ' + name);
+    });
+    form.appendChild(save);
+
+    if (old) {
+      var acts = BF.el('div', 'bf-sheet-acts');
+      acts.appendChild(BF.button('Ate it', 'bf-btn-primary', function () { BF.closeSheet(); BF.ateIt(old.id); }));
+      acts.appendChild(BF.button('Running low', 'bf-btn-ghost', function () { BF.closeSheet(); BF.runningLow(old.name); }));
+      acts.appendChild(BF.button('Delete', 'bf-btn-ghost', function () { BF.closeSheet(); BF.deleteItem(old.id); }));
+      form.appendChild(acts);
+    }
+    box.appendChild(form);
+  });
+};
+
+/* ---------- Cook (replaces batch G's): a dish with a recipe opens the recipe ---------- */
+BF.renderCook = function () {
+  var ui = BF.playUI && BF.playUI.cook;
+  if (!ui) return;
+  ui.body.replaceChildren();
+  if (!BF.data.loaded || !BF.lib.loaded) return;
+  var m = BF.cookMatches();
+  var canLines = m.can.map(function (d) {
+    var l = BF.el('button', 'bf-line');
+    l.type = 'button';
+    l.appendChild(BF.el('span', 'bf-line-name', String(d.name)));
+    if (BF.hasRecipe(d)) l.appendChild(BF.el('span', 'bf-line-recipe', '\uD83D\uDCD6'));
+    l.addEventListener('click', function () { if (BF.hasRecipe(d)) BF.openRecipe(d.id); else BF.openDishActions(d.id); });
+    return l;
+  });
+  var oneLines = m.one.map(function (o) {
+    var l = BF.el('div', 'bf-line bf-line-dish');
+    var nb = BF.el('button', 'bf-line-main');
+    nb.type = 'button';
+    nb.appendChild(BF.el('span', 'bf-line-name', String(o.dish.name)));
+    nb.appendChild(BF.el('span', 'bf-line-when', 'needs ' + o.missing));
+    nb.addEventListener('click', function () { if (BF.hasRecipe(o.dish)) BF.openRecipe(o.dish.id); else BF.openDishActions(o.dish.id); });
+    l.appendChild(nb);
+    var on = !!BF.onList(o.missing);
+    var add = BF.button(on ? 'On list' : '+ Shop', 'bf-btn-sm bf-cook-add', function () { add.disabled = true; BF.runningLow(o.missing); }, 'Add ' + o.missing + ' to the shopping list');
+    add.disabled = on;
+    l.appendChild(add);
+    return l;
+  });
+  if (canLines.length) ui.body.appendChild(BF.note('cook:can', 'Can make now', canLines, 'ice', false));
+  if (oneLines.length) ui.body.appendChild(BF.note('cook:one', 'Missing one', oneLines, 'gold', false));
+  if (!canLines.length && !oneLines.length) {
+    ui.body.appendChild(BF.el('p', 'bf-empty', 'Nothing matches the fridge right now.'));
+  }
+  if (m.noIng) {
+    ui.body.appendChild(BF.el('p', 'bf-hint', m.noIng === 1
+      ? '1 home-cooked dish has no ingredients yet. Add them in the Library to see it here.'
+      : m.noIng + ' home-cooked dishes have no ingredients yet. Add them in the Library to see them here.'));
+  }
 };
 
 BF.init();
