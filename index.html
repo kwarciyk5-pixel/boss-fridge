@@ -542,6 +542,12 @@ select.bf-field {
 .bf-front-none { margin: 0; font-weight: 800; color: var(--bf-muted); }
 .bf-front .bf-sheet-acts { margin-top: 2px; }
 
+/* ---------- batch E2: Play switcher, Ready only on the location line ---------- */
+.bf-play-switch { flex-wrap: nowrap; }
+.bf-play-switch .bf-pill { flex: 1 1 0; min-width: 0; white-space: nowrap; }
+.bf-wheel-fridge .bf-pills-line .bf-pill { padding: 0 5px; }
+.bf-pills-line .bf-pill.bf-pill-gap { margin-left: 4px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -678,7 +684,7 @@ select.bf-field {
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v10';
+var BF_VERSION = 'bf-v11';
 
 var BF = {
   sb: null,
@@ -4624,6 +4630,175 @@ var _bfBootE = BF.boot;
 BF.boot = async function () {
   await _bfBootE.apply(this, arguments);
   if (BF.screen === 'app') BF.boardListen();
+};
+
+/* ===================== batch E2: board on Boss + Play (same data), Play switcher, spin the nominees ===================== */
+
+/* ---------- wheel: a "Nominees" source (tomorrow's board) ---------- */
+BF.WHEEL_SOURCES = [['fridge', 'Fridge'], ['library', 'Library'], ['board', 'Nominees'], ['custom', 'Custom']];
+
+var _bfWheelOptionsE = BF.wheelOptions;
+BF.wheelOptions = function () {
+  if (BF.wheel.source !== 'board') return _bfWheelOptionsE.apply(this, arguments);
+  var out = [];
+  BF.boardFor(BF.addDays(1)).forEach(function (r) {
+    var label = String(r.label == null ? '' : r.label).trim();
+    if (!label || out.some(function (x) { return BF.sameName(x.label, label); })) return;
+    var dish = BF.boardDish(r);
+    out.push({ label: label, kind: dish ? 'dish' : 'custom', id: dish ? dish.id : null });
+  });
+  return out;
+};
+
+/* ---------- board card: one builder, mounted on Boss and on Play ---------- */
+var _bfBuildBoardE = BF.buildBoardUI;
+BF.buildBoardUI = function () {
+  var ui = _bfBuildBoardE.apply(this, arguments);
+  ui.spinBtn = BF.button('Spin the nominees', 'bf-btn-gold bf-btn-wide', function () { BF.spinNominees(); });
+  ui.spinBtn.hidden = true;
+  ui.card.appendChild(ui.spinBtn);
+  return ui;
+};
+
+BF.renderBoardInto = function (ui) {
+  if (!ui) return;
+  BF.boardSuggest();
+  ui.list.replaceChildren();
+  ui.spinBtn.hidden = true;
+  if (!BF.board.loaded) return;
+  var day = BF.addDays(1);
+  var rows = BF.boardFor(day);
+  if (!rows.length) {
+    ui.list.appendChild(BF.el('p', 'bf-empty bf-noms-empty', 'Nothing nominated yet. Be the first.'));
+    return;
+  }
+  var lead = BF.frontRunner(day);
+  rows.forEach(function (r) { ui.list.appendChild(BF.nomRow(r, rows.length > 1 && lead && r.id === lead.id)); });
+  ui.spinBtn.hidden = rows.length < 2;
+};
+
+BF.renderBoard = function () {
+  BF.renderBossBoard();
+  BF.renderBoardInto(BF.playUI && BF.playUI.board);
+};
+
+/* A board change can change the Nominees wheel too. */
+BF.refreshBoard = function () {
+  return BF.loadBoard().then(function () {
+    if (BF.playUI) BF.renderPlay(); else BF.renderBoard();
+  });
+};
+
+/* ---------- Boss tab: Today's plan + the full board ---------- */
+BF.renderBossBoard = function () {
+  var body = BF.$('bf-tab-boss-body');
+  if (!body) return;
+  if (!BF.bossUI) {
+    body.classList.add('bf-stack');
+    var plan = BF.el('section', 'bf-card bf-front');
+    plan.hidden = true;
+    var board = BF.buildBoardUI();
+    board.card.removeAttribute('id');
+    body.appendChild(plan);
+    body.appendChild(board.card);
+    BF.bossUI = { plan: plan, board: board };
+  }
+  var ui = BF.bossUI;
+  var today = BF.board.loaded ? BF.frontRunner(BF.today()) : null;
+  ui.plan.replaceChildren();
+  ui.plan.hidden = !today;
+  if (today) {
+    ui.plan.appendChild(BF.el('p', 'bf-result-kicker', 'Today\'s plan'));
+    ui.plan.appendChild(BF.el('p', 'bf-front-name', today.label));
+  }
+  ui.board.card.hidden = !BF.board.loaded;
+  BF.renderBoardInto(ui.board);
+};
+
+/* ---------- Play tab: switcher (Wheel / Board), one pane at a time ---------- */
+BF.PLAY_VIEWS = [['wheel', 'Wheel'], ['board', 'Tomorrow board']];
+BF.playView = 'wheel';
+try { if (localStorage.getItem('bf-play-view') === 'board') BF.playView = 'board'; } catch (e) { /* ignore */ }
+
+BF.setPlayView = function (v) {
+  BF.playView = v === 'board' ? 'board' : 'wheel';
+  try { localStorage.setItem('bf-play-view', BF.playView); } catch (e) { /* ignore */ }
+  BF.renderPlay();
+  BF.$('bf-main').scrollTop = 0;
+};
+
+var _bfBuildPlayE = BF.buildPlayUI;
+BF.buildPlayUI = function () {
+  var ui = _bfBuildPlayE.apply(this, arguments);
+  var body = BF.$('bf-tab-play-body');
+
+  // Ready only joins the location pills on one line
+  var readyPill = ui.fridgeOpts.querySelector('.bf-pills:not(.bf-pills-line) .bf-pill');
+  if (readyPill) {
+    var oldRow = readyPill.parentNode;
+    readyPill.classList.add('bf-pill-gap');
+    ui.locBtns[0].parentNode.appendChild(readyPill);
+    oldRow.remove();
+  }
+
+  // Panes
+  var sw = BF.el('div', 'bf-pills bf-play-switch');
+  sw.setAttribute('role', 'group');
+  sw.setAttribute('aria-label', 'Play');
+  var viewBtns = BF.PLAY_VIEWS.map(function (v) {
+    var b = BF.el('button', 'bf-pill', v[1]);
+    b.type = 'button';
+    b._val = v[0];
+    b.addEventListener('click', function () { BF.setPlayView(v[0]); });
+    sw.appendChild(b);
+    return b;
+  });
+  var wheelPane = BF.el('div', 'bf-stack');
+  var boardPane = BF.el('div', 'bf-stack');
+  var spinCard = body.querySelector('.bf-spin-card');
+  wheelPane.appendChild(spinCard);
+  wheelPane.appendChild(ui.result);
+  boardPane.appendChild(ui.board.card);
+  body.replaceChildren(sw, wheelPane, boardPane);
+  ui.viewBtns = viewBtns;
+  ui.wheelPane = wheelPane;
+  ui.boardPane = boardPane;
+  return ui;
+};
+
+var _bfRenderPlayE = BF.renderPlay;
+BF.renderPlay = function () {
+  _bfRenderPlayE.apply(this, arguments);
+  var ui = BF.playUI;
+  if (!ui || !ui.viewBtns) return;
+  ui.viewBtns.forEach(function (b) {
+    var on = b._val === BF.playView;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  ui.wheelPane.hidden = BF.playView !== 'wheel';
+  ui.boardPane.hidden = BF.playView !== 'board';
+  if (BF.wheel.source === 'board' && !ui.empty.hidden) {
+    ui.empty.textContent = 'Nominate at least 2 dishes for tomorrow first.';
+  }
+};
+
+/* ---------- navigation from the Boss tab ---------- */
+BF.goPlay = function (target) {
+  BF.showTab('play');
+  if (target === 'board') BF.playView = 'board';
+  else if (target === 'wheel') BF.playView = 'wheel';
+  try { localStorage.setItem('bf-play-view', BF.playView); } catch (e) { /* ignore */ }
+  BF.renderPlay();
+  BF.$('bf-main').scrollTop = 0;
+};
+
+BF.spinNominees = function () {
+  if (BF.wheel.spinning) return;
+  BF.wheel.source = 'board';
+  BF.wheel.result = null;
+  BF.goPlay('wheel');
+  BF.spin();
 };
 
 BF.init();
