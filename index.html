@@ -711,6 +711,14 @@ select.bf-field {
 .bf-link-row select.bf-field { flex: 0 0 auto; width: 136px; min-height: 40px; font-size: 16px; }
 .bf-act-stars { margin: -4px 0 10px; font-weight: 800; font-size: 14px; overflow-wrap: anywhere; }
 
+/* ---------- batch J2: bottom bar docked under the page (nothing scrolls behind it) ---------- */
+.bf-main { padding-bottom: 20px; }
+.bf-nav {
+  position: relative; left: auto; right: auto; bottom: auto;
+  flex: 0 0 auto; width: calc(100% - 24px); max-width: 616px;
+  margin: 0 auto calc(10px + env(safe-area-inset-bottom));
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -847,7 +855,7 @@ select.bf-field {
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v18';
+var BF_VERSION = 'bf-v19';
 
 var BF = {
   sb: null,
