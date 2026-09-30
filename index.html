@@ -654,6 +654,31 @@ select.bf-field {
 .bf-cook-card { display: flex; flex-direction: column; gap: 10px; }
 .bf-cook-add { flex: 0 0 auto; min-height: 32px; }
 
+/* ---------- batch F: swipe to match ---------- */
+.bf-swipe-card { display: flex; flex-direction: column; gap: 10px; }
+.bf-swipe-wrap { display: flex; flex-direction: column; gap: 12px; }
+.bf-swipe-face {
+  min-height: 170px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  padding: 18px; border: 2.5px solid var(--bf-ink); border-radius: 18px; background: var(--bf-ice);
+  box-shadow: 3px 3px 0 var(--bf-ink); text-align: center;
+  touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: grab;
+  transition: transform .2s ease, background .15s ease;
+}
+.bf-swipe-face.is-drag { transition: none; cursor: grabbing; }
+.bf-swipe-face.is-yes { background: var(--bf-goldsoft); }
+.bf-swipe-face.is-no { background: var(--bf-peach); }
+.bf-swipe-name { margin: 0; font-family: var(--bf-font-head); font-size: 28px; font-weight: 700; overflow-wrap: anywhere; }
+.bf-swipe-kind { margin: 0; font-size: 13px; font-weight: 800; color: var(--bf-muted); }
+.bf-swipe-acts { display: flex; gap: 10px; }
+.bf-swipe-acts .bf-btn { flex: 1 1 0; min-height: 52px; font-size: 18px; }
+.bf-swipe-wait { text-align: center; padding: 10px 0; }
+.bf-swipe-wait-title { margin: 0; font-weight: 900; font-size: 16px; }
+.bf-swipe-who { margin: 6px 0 0; font-size: 24px; letter-spacing: 4px; }
+.bf-swipe-picks { margin: 6px 0 12px; font-weight: 800; font-size: 16px; overflow-wrap: anywhere; }
+.bf-boss-swipe { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
+.bf-boss-swipe-text { flex: 1 1 auto; min-width: 0; margin: 0; font-weight: 800; font-size: 14.5px; overflow-wrap: anywhere; }
+.bf-boss-swipe .bf-btn { flex: 0 0 auto; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -790,7 +815,7 @@ select.bf-field {
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v14';
+var BF_VERSION = 'bf-v15';
 
 var BF = {
   sb: null,
@@ -5673,6 +5698,495 @@ BF.note = function (key) {
 var _bfLoadDataG = BF.loadData;
 BF.loadData = function () {
   return _bfLoadDataG.apply(this, arguments).then(function () { BF.renderBoss(); });
+};
+
+/* ===================== batch F: Swipe to match (realtime) ===================== */
+
+BF.SWIPE_MAX = 15;
+BF.SWIPE_KEEP_HOURS = 24;       // a matched round stays on screen this long
+BF.SWIPE_SOURCES = [['ready', 'Ready food'], ['library', 'Library'], ['fav', '\u2605 Favourites'], ['board', 'Nominees'], ['custom', 'Custom']];
+BF.swipe = { round: null, swipes: [], loaded: false, source: 'library', customText: '', pos: null, hideId: null };
+try { BF.swipe.hideId = localStorage.getItem('bf-swipe-hide'); } catch (e) { /* ignore */ }
+BF._swipeSeq = 0;
+
+BF.lc = function (s) { return String(s == null ? '' : s).trim().toLowerCase(); };
+BF.memberEmails = function () { return (BF.members || []).map(function (m) { return BF.lc(m.email); }).filter(Boolean); };
+
+/* ---------- options for a new round ---------- */
+BF.swipeCandidates = function () {
+  var s = BF.swipe.source;
+  var out = [];
+  var add = function (label, dishId) {
+    label = String(label == null ? '' : label).trim();
+    if (!label || out.some(function (o) { return BF.sameName(o.label, label); })) return;
+    var o = { label: label };
+    if (dishId != null) o.dish_id = dishId;
+    out.push(o);
+  };
+  if (s === 'ready') {
+    BF.data.items.forEach(function (it) {
+      if (!(it.ready || BF.dishIsReady(it))) return;
+      var d = it.dish_id != null ? BF.findDish(it.dish_id) : BF.dishByName(it.name);
+      add(it.name, d ? d.id : null);
+    });
+  } else if (s === 'library' || s === 'fav') {
+    BF.lib.dishes.slice().sort(BF.byName).forEach(function (d) {
+      if (s === 'fav' && !d.favourite) return;
+      add(d.name, d.id);
+    });
+  } else if (s === 'board') {
+    BF.boardFor(BF.addDays(1)).forEach(function (r) { add(r.label, BF.boardDish(r) ? r.dish_id : null); });
+  } else {
+    BF.uniqueLines(BF.swipe.customText).forEach(function (n) { var d = BF.dishByName(n); add(n, d ? d.id : null); });
+  }
+  return out;
+};
+
+/* ---------- load ---------- */
+BF.loadSwipe = async function () {
+  if (!BF.sb) return;
+  var seq = ++BF._swipeSeq;
+  var round = null, swipes = [];
+  try {
+    var rows = BF.q(await BF.sb.from('bf_swipe_rounds').select('*').order('created_at', { ascending: false }).limit(1));
+    var r = rows && rows[0];
+    if (r && (r.status === 'open' || (r.status === 'matched' && String(r.id) !== BF.swipe.hideId &&
+        Date.now() - BF.tsMs(r.created_at) < BF.SWIPE_KEEP_HOURS * 3600000))) round = r;
+    if (round) swipes = BF.q(await BF.sb.from('bf_swipes').select('*').eq('round_id', round.id)) || [];
+  } catch (e) {
+    console.warn('swipe load failed', e);
+    return;
+  }
+  if (seq !== BF._swipeSeq) return;
+  if (!BF.swipe.round || !round || String(BF.swipe.round.id) !== String(round.id)) BF.swipe.pos = null;
+  BF.swipe.round = round;
+  BF.swipe.swipes = swipes;
+  BF.swipe.loaded = true;
+  if (round && round.status === 'open') BF.checkMatch();
+};
+
+var _bfLoadDataF = BF.loadData;
+BF.loadData = function () {
+  return Promise.all([_bfLoadDataF.apply(this, arguments), BF.loadSwipe()]).then(function () { BF.renderSwipeAll(); });
+};
+
+BF.refreshSwipe = function () {
+  return BF.loadSwipe().then(function () { BF.renderSwipeAll(); });
+};
+
+/* ---------- derived ---------- */
+BF.roundOptions = function (r) { return (r && Array.isArray(r.options)) ? r.options : []; };
+BF.myAnswer = function (i) {
+  var me = BF.lc(BF.myEmail());
+  var s = BF.swipe.swipes.filter(function (x) { return BF.lc(x.email) === me && Number(x.option_index) === i; })[0];
+  return s ? !!s.yes : null;
+};
+BF.doneEmails = function () {
+  var n = BF.roundOptions(BF.swipe.round).length;
+  return BF.memberEmails().filter(function (e) {
+    var mine = {};
+    BF.swipe.swipes.forEach(function (x) { if (BF.lc(x.email) === e) mine[Number(x.option_index)] = true; });
+    return Object.keys(mine).length >= n;
+  });
+};
+BF.imDone = function () { return BF.doneEmails().indexOf(BF.lc(BF.myEmail())) >= 0; };
+BF.allDone = function () { var m = BF.memberEmails(); return m.length > 0 && BF.doneEmails().length >= m.length; };
+BF.yesCount = function (i) {
+  var members = BF.memberEmails();
+  var who = {};
+  BF.swipe.swipes.forEach(function (x) {
+    if (Number(x.option_index) === i && x.yes && members.indexOf(BF.lc(x.email)) >= 0) who[BF.lc(x.email)] = true;
+  });
+  return Object.keys(who).length;
+};
+/* Lowest-index option that every member said yes to, or -1. */
+BF.matchIndex = function () {
+  var n = BF.roundOptions(BF.swipe.round).length;
+  var need = BF.memberEmails().length;
+  if (!need) return -1;
+  for (var i = 0; i < n; i++) if (BF.yesCount(i) >= need) return i;
+  return -1;
+};
+/* Write the match once; only succeeds while the round is still open. */
+BF.checkMatch = async function () {
+  var r = BF.swipe.round;
+  if (!r || r.status !== 'open') return;
+  var i = BF.matchIndex();
+  if (i < 0) return;
+  var label = BF.roundOptions(r)[i].label;
+  r.status = 'matched';
+  r.match_label = label;
+  try {
+    BF.q(await BF.sb.from('bf_swipe_rounds').update({ status: 'matched', match_label: label }).eq('id', r.id).eq('status', 'open'));
+  } catch (e) { console.warn('match write failed', e); }
+  BF.refreshSwipe();
+};
+BF.topPicks = function () {
+  var opts = BF.roundOptions(BF.swipe.round);
+  var best = 0;
+  opts.forEach(function (o, i) { best = Math.max(best, BF.yesCount(i)); });
+  return opts.filter(function (o, i) { return BF.yesCount(i) === best; });
+};
+BF.nextToSwipe = function () {
+  var n = BF.roundOptions(BF.swipe.round).length;
+  if (BF.swipe.pos != null && BF.swipe.pos < n) return BF.swipe.pos;
+  for (var i = 0; i < n; i++) if (BF.myAnswer(i) === null) return i;
+  return -1;
+};
+
+/* ---------- actions ---------- */
+BF.startRound = async function (btn) {
+  var all = BF.swipeCandidates();
+  if (all.length < 2) { BF.toast('Need at least 2 options to swipe'); return; }
+  var pool = all.slice(), pick = [];
+  while (pool.length && pick.length < BF.SWIPE_MAX) pick.push(pool.splice(BF.randInt(pool.length), 1)[0]);
+  if (btn) btn.disabled = true;
+  try {
+    BF.q(await BF.sb.from('bf_swipe_rounds').insert({ source: BF.swipe.source, options: pick, status: 'open' }));
+  } catch (e) {
+    console.warn('start round failed', e);
+    BF.toast(BF.SAVE_FAIL);
+  }
+  if (btn) btn.disabled = false;
+  BF.swipe.pos = null;
+  await BF.refreshSwipe();
+};
+
+BF.answer = async function (i, yes) {
+  var r = BF.swipe.round;
+  if (!r || r.status !== 'open') return;
+  var me = BF.lc(BF.myEmail());
+  // Show it straight away.
+  BF.swipe.swipes = BF.swipe.swipes.filter(function (x) { return !(BF.lc(x.email) === me && Number(x.option_index) === i); });
+  BF.swipe.swipes.push({ round_id: r.id, email: me, option_index: i, yes: yes });
+  BF.swipe.pos = null;
+  BF.renderSwipeAll();
+  try {
+    BF.q(await BF.sb.from('bf_swipes').upsert({ round_id: r.id, email: me, option_index: i, yes: yes }, { onConflict: 'round_id,email,option_index' }));
+  } catch (e) {
+    console.warn('swipe failed', e);
+    BF.toast(BF.SAVE_FAIL);
+  }
+  await BF.refreshSwipe();
+};
+
+BF.closeRound = async function () {
+  var r = BF.swipe.round;
+  if (!r) return;
+  try {
+    BF.q(await BF.sb.from('bf_swipe_rounds').update({ status: 'closed' }).eq('id', r.id));
+  } catch (e) {
+    console.warn('close failed', e);
+    BF.toast(BF.SAVE_FAIL);
+  }
+  await BF.refreshSwipe();
+};
+
+/* "New round" on a match hides that match on this phone (remembered), so the start form shows. */
+BF.newRoundView = function () {
+  var r = BF.swipe.round;
+  if (r) {
+    BF.swipe.hideId = String(r.id);
+    try { localStorage.setItem('bf-swipe-hide', BF.swipe.hideId); } catch (e) { /* ignore */ }
+  }
+  BF.swipe.round = null;
+  BF.swipe.swipes = [];
+  BF.renderSwipeAll();
+};
+
+BF.eatOption = function (o) {
+  var d = (o.dish_id != null && BF.findDish(o.dish_id)) || BF.dishByName(o.label);
+  if (d) { BF.openDishActions(d.id); return; }
+  var it = BF.data.items.filter(function (x) { return BF.sameName(x.name, o.label); })[0];
+  if (it) BF.openItemActions(it.id);
+};
+
+BF.spinPicks = function () {
+  var picks = BF.topPicks();
+  BF.wheel.source = 'custom';
+  BF.wheel.customText = picks.map(function (o) { return o.label; }).join('\n');
+  BF.wheel.listId = null;
+  BF.wheel.result = null;
+  BF.setPlayView('wheel');
+  BF.spin();
+};
+
+/* ---------- UI (Play tab: Swipe view) ---------- */
+BF.buildSwipeUI = function () {
+  var card = BF.el('section', 'bf-card bf-swipe-card');
+  card.appendChild(BF.el('h2', 'bf-spin-title', 'Swipe together'));
+  var body = BF.el('div', 'bf-stack');
+  card.appendChild(body);
+  return { card: card, body: body };
+};
+
+BF.swipeStartForm = function (box) {
+  box.appendChild(BF.el('p', 'bf-hint', 'Everyone swipes on their own phone. The first thing you all say yes to wins.'));
+  var row = BF.el('div', 'bf-pills bf-pills-line');
+  row.setAttribute('role', 'group');
+  row.setAttribute('aria-label', 'Swipe from');
+  BF.SWIPE_SOURCES.forEach(function (s) {
+    var on = BF.swipe.source === s[0];
+    var b = BF.el('button', 'bf-pill' + (on ? ' is-on' : ''), s[1]);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.addEventListener('click', function () { BF.swipe.source = s[0]; BF.renderSwipeAll(); });
+    row.appendChild(b);
+  });
+  box.appendChild(row);
+  if (BF.swipe.source === 'custom') {
+    var ta = BF.input({ tag: 'textarea', placeholder: 'One option per line' });
+    ta.rows = 4;
+    ta.value = BF.swipe.customText;
+    ta.addEventListener('input', function () {
+      BF.swipe.customText = ta.value;
+      var n = BF.swipeCandidates().length;
+      note.textContent = BF.swipeCountText(n);
+      go.disabled = n < 2;
+    });
+    box.appendChild(BF.labelled('Custom options, one per line', ta, true));
+  }
+  var n = BF.swipeCandidates().length;
+  var note = BF.el('p', 'bf-hint', BF.swipeCountText(n));
+  note.setAttribute('role', 'status');
+  box.appendChild(note);
+  var go = BF.button('Start a round', 'bf-btn-gold bf-btn-wide', function () { BF.startRound(go); });
+  go.disabled = n < 2;
+  box.appendChild(go);
+};
+
+BF.swipeCountText = function (n) {
+  if (n < 2) return 'Need at least 2 options here.';
+  return n > BF.SWIPE_MAX ? BF.SWIPE_MAX + ' picked at random from ' + n + '.' : n + ' options.';
+};
+
+/* The card to swipe: drag left/right, or tap No / Yes. */
+BF.swipeCardEl = function (i) {
+  var o = BF.roundOptions(BF.swipe.round)[i];
+  var wrap = BF.el('div', 'bf-swipe-wrap');
+  var c = BF.el('div', 'bf-swipe-face');
+  c.appendChild(BF.el('p', 'bf-swipe-name', o.label));
+  var d = o.dish_id != null ? BF.findDish(o.dish_id) : null;
+  if (d) c.appendChild(BF.el('p', 'bf-swipe-kind', BF.kindLabel(d.kind) || ''));
+  wrap.appendChild(c);
+  var x0 = null, dx = 0;
+  c.addEventListener('pointerdown', function (e) { x0 = e.clientX; dx = 0; c.setPointerCapture(e.pointerId); c.classList.add('is-drag'); });
+  c.addEventListener('pointermove', function (e) {
+    if (x0 === null) return;
+    dx = e.clientX - x0;
+    c.style.transform = 'translateX(' + dx + 'px) rotate(' + (dx / 18) + 'deg)';
+    c.classList.toggle('is-yes', dx > 60);
+    c.classList.toggle('is-no', dx < -60);
+  });
+  var end = function () {
+    if (x0 === null) return;
+    x0 = null;
+    c.classList.remove('is-drag');
+    if (Math.abs(dx) > 90) { BF.answer(i, dx > 0); return; }
+    c.style.transform = '';
+    c.classList.remove('is-yes', 'is-no');
+  };
+  c.addEventListener('pointerup', end);
+  c.addEventListener('pointercancel', end);
+  var acts = BF.el('div', 'bf-swipe-acts');
+  acts.appendChild(BF.button('\u2715 No', 'bf-swipe-no', function () { BF.answer(i, false); }, 'No: ' + o.label));
+  acts.appendChild(BF.button('\u2665 Yes', 'bf-btn-primary bf-swipe-yes', function () { BF.answer(i, true); }, 'Yes: ' + o.label));
+  wrap.appendChild(acts);
+  return wrap;
+};
+
+/* My answers so far - tap one to change it. */
+BF.myAnswersNote = function () {
+  var opts = BF.roundOptions(BF.swipe.round);
+  var lines = [];
+  opts.forEach(function (o, i) {
+    var a = BF.myAnswer(i);
+    if (a === null) return;
+    var l = BF.el('button', 'bf-line');
+    l.type = 'button';
+    l.appendChild(BF.el('span', 'bf-line-name', o.label));
+    l.appendChild(BF.el('span', 'bf-tag ' + (a ? 'bf-tag-ready' : 'bf-tag-soon'), a ? 'Yes' : 'No'));
+    l.setAttribute('aria-label', o.label + ': ' + (a ? 'yes' : 'no') + '. Tap to change');
+    l.addEventListener('click', function () { BF.answer(i, !a); });
+    lines.push(l);
+  });
+  if (!lines.length) return null;
+  return BF.note('swipe:mine', 'My answers (tap to change)', lines, 'ice', false);
+};
+
+BF.waitingFor = function () {
+  var done = BF.doneEmails();
+  return (BF.members || []).filter(function (m) { return done.indexOf(BF.lc(m.email)) < 0; })
+    .map(function (m) { return m.emoji || BF.firstChar(m.display_name || m.email); });
+};
+
+BF.renderSwipe = function () {
+  var ui = BF.playUI && BF.playUI.swipe;
+  if (!ui) return;
+  var box = ui.body;
+  box.replaceChildren();
+  if (!BF.swipe.loaded) return;
+  var r = BF.swipe.round;
+  if (!r) { BF.swipeStartForm(box); return; }
+  var opts = BF.roundOptions(r);
+  var mine = r.created_by && BF.lc(r.created_by) === BF.lc(BF.myEmail());
+  if (r.status === 'matched') {
+    var m = BF.el('div', 'bf-result-pick bf-match');
+    m.appendChild(BF.el('p', 'bf-result-kicker', 'It\'s a match!'));
+    m.appendChild(BF.el('p', 'bf-result-name', r.match_label || ''));
+    var ma = BF.el('div', 'bf-sheet-acts');
+    var hit = opts.filter(function (o) { return o.label === r.match_label; })[0] || { label: r.match_label };
+    ma.appendChild(BF.button('Let\'s eat it', 'bf-btn-primary', function () { BF.eatOption(hit); }));
+    ma.appendChild(BF.button('New round', '', function () { BF.newRoundView(); }));
+    m.appendChild(ma);
+    box.appendChild(m);
+    return;
+  }
+  var next = BF.nextToSwipe();
+  if (next >= 0) {
+    box.appendChild(BF.swipeCardEl(next));
+  } else if (BF.allDone()) {
+    var nm = BF.el('div', 'bf-result-pick');
+    nm.appendChild(BF.el('p', 'bf-result-kicker', 'No match this time'));
+    var picks = BF.topPicks();
+    nm.appendChild(BF.el('p', 'bf-swipe-picks', 'Most wanted: ' + picks.map(function (o) { return o.label; }).join(', ')));
+    var na = BF.el('div', 'bf-sheet-acts');
+    if (picks.length > 1) na.appendChild(BF.button('Spin between them', 'bf-btn-gold', function () { BF.spinPicks(); }));
+    else na.appendChild(BF.button('Let\'s eat it', 'bf-btn-primary', function () { BF.eatOption(picks[0]); }));
+    nm.appendChild(na);
+    box.appendChild(nm);
+  } else {
+    var w = BF.el('div', 'bf-swipe-wait');
+    w.appendChild(BF.el('p', 'bf-swipe-wait-title', 'Done! Waiting for the others\u2026'));
+    var who = BF.waitingFor();
+    if (who.length) w.appendChild(BF.el('p', 'bf-swipe-who', who.join(' ')));
+    box.appendChild(w);
+  }
+  var mineNote = BF.myAnswersNote();
+  if (mineNote) box.appendChild(mineNote);
+  if (mine || BF.allDone()) {
+    var close = BF.button('Close this round', 'bf-btn-ghost bf-btn-sm', function () { close.disabled = true; BF.closeRound(); });
+    close.style.alignSelf = 'flex-start';
+    box.appendChild(close);
+  }
+};
+
+/* ---------- Boss tab: a small Swipe card ---------- */
+BF.renderBossSwipe = function () {
+  var body = BF.$('bf-tab-boss-body');
+  if (!body || !BF.bossUI) return;
+  if (!BF.bossUI.swipe) {
+    var c = BF.el('section', 'bf-card bf-boss-swipe');
+    body.insertBefore(c, BF.bossUI.board.card);
+    BF.bossUI.swipe = c;
+  }
+  var card = BF.bossUI.swipe;
+  card.replaceChildren();
+  card.hidden = !BF.swipe.loaded;
+  if (!BF.swipe.loaded) return;
+  var r = BF.swipe.round;
+  var text, btn;
+  if (!r) { text = 'Can\'t decide tonight? Swipe together.'; btn = 'Start a round'; }
+  else if (r.status === 'matched') { text = 'Tonight\'s match: ' + (r.match_label || ''); btn = 'See it'; }
+  else if (BF.nextToSwipe() >= 0) { text = 'A swipe round is on. Your turn!'; btn = 'Swipe'; }
+  else if (BF.allDone()) { text = 'Swipe round done \u2013 no match yet.'; btn = 'See picks'; }
+  else { text = 'Waiting for ' + BF.waitingFor().join(' ') + ' to swipe.'; btn = 'Open'; }
+  card.appendChild(BF.el('p', 'bf-boss-swipe-text', text));
+  card.appendChild(BF.button(btn, 'bf-btn-sm ' + (r && r.status === 'open' && BF.nextToSwipe() >= 0 ? 'bf-btn-gold' : ''), function () { BF.goPlay('swipe'); }));
+};
+
+BF.renderSwipeAll = function () {
+  BF.renderSwipe();
+  BF.renderBossSwipe();
+};
+
+/* Swipe joins the Play switcher. */
+BF.PLAY_VIEWS = [['wheel', 'Wheel'], ['board', 'Board'], ['swipe', 'Swipe'], ['cook', 'Cook']];
+try { if (localStorage.getItem('bf-play-view') === 'swipe') BF.playView = 'swipe'; } catch (e) { /* ignore */ }
+
+var _bfBuildPlayG = BF.buildPlayUI;
+BF.buildPlayUI = function () {
+  var ui = _bfBuildPlayG.apply(this, arguments);
+  ui.swipe = BF.buildSwipeUI();
+  var pane = BF.el('div', 'bf-stack');
+  pane.appendChild(ui.swipe.card);
+  ui.cookPane.parentNode.insertBefore(pane, ui.cookPane);
+  ui.swipePane = pane;
+  return ui;
+};
+
+BF.setPlayView = function (v) {
+  BF.playView = (v === 'board' || v === 'cook' || v === 'swipe') ? v : 'wheel';
+  try { localStorage.setItem('bf-play-view', BF.playView); } catch (e) { /* ignore */ }
+  BF.renderPlay();
+  BF.$('bf-main').scrollTop = 0;
+};
+
+BF.goPlay = function (target) {
+  BF.showTab('play');
+  if (target === 'board' || target === 'wheel' || target === 'swipe' || target === 'cook') BF.playView = target;
+  try { localStorage.setItem('bf-play-view', BF.playView); } catch (e) { /* ignore */ }
+  BF.renderPlay();
+  BF.$('bf-main').scrollTop = 0;
+};
+
+var _bfRenderPlayG = BF.renderPlay;
+BF.renderPlay = function () {
+  _bfRenderPlayG.apply(this, arguments);
+  var ui = BF.playUI;
+  if (!ui || !ui.swipePane) return;
+  ui.swipePane.hidden = BF.playView !== 'swipe';
+  if (BF.playView === 'swipe') BF.renderSwipe();
+};
+
+/* Boss card order: after the board is built, add the swipe card. */
+var _bfRenderBossBoardF = BF.renderBossBoard;
+BF.renderBossBoard = function () {
+  _bfRenderBossBoardF.apply(this, arguments);
+  BF.renderBossSwipe();
+};
+
+/* Folding "My answers" re-renders Swipe. */
+var _bfNoteF = BF.note;
+BF.note = function (key) {
+  var n = _bfNoteF.apply(this, arguments);
+  if (String(key).indexOf('swipe:') === 0) {
+    var head = n.querySelector('.bf-note-head');
+    var fresh = head.cloneNode(true);
+    fresh.addEventListener('click', function () { BF.toggleFold(key); BF.renderSwipe(); });
+    head.parentNode.replaceChild(fresh, head);
+  }
+  return n;
+};
+
+/* ---------- realtime: rounds + swipes ---------- */
+BF._swipeCh = null;
+BF._swipeTimer = null;
+BF.swipeListen = function () {
+  if (!BF.sb || typeof BF.sb.channel !== 'function' || BF._swipeCh) return;
+  var kick = function () {
+    clearTimeout(BF._swipeTimer);
+    BF._swipeTimer = setTimeout(function () { if (BF.screen === 'app') BF.refreshSwipe(); }, 250);
+  };
+  var ch = BF.sb.channel('bf-swipe')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'bf_swipe_rounds' }, kick)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'bf_swipes' }, kick);
+  BF._swipeCh = ch;
+  ch.subscribe(function (status) {
+    if (ch !== BF._swipeCh) return;
+    if (status === 'SUBSCRIBED') { kick(); return; }
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      console.warn('swipe realtime', status);
+      BF._swipeCh = null;
+      try { BF.sb.removeChannel(ch); } catch (e) { /* ignore */ }
+    }
+  });
+};
+
+var _bfBootF = BF.boot;
+BF.boot = async function () {
+  await _bfBootF.apply(this, arguments);
+  if (BF.screen === 'app') BF.swipeListen();
 };
 
 BF.init();
