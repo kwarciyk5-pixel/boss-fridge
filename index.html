@@ -679,6 +679,18 @@ select.bf-field {
 .bf-boss-swipe-text { flex: 1 1 auto; min-width: 0; margin: 0; font-weight: 800; font-size: 14.5px; overflow-wrap: anywhere; }
 .bf-boss-swipe .bf-btn { flex: 0 0 auto; }
 
+/* ---------- batch H: profile (name + emoji) ---------- */
+.bf-member-edit { margin-left: auto; min-height: 34px; }
+.bf-emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.bf-emoji-btn {
+  aspect-ratio: 1 / 1; min-width: 0; padding: 0;
+  border: 2px solid var(--bf-line); border-radius: 12px; background: var(--bf-card);
+  font-size: 22px; line-height: 1; cursor: pointer;
+}
+.bf-emoji-btn.is-on { border-color: var(--bf-ink); background: var(--bf-goldsoft); box-shadow: inset 0 0 0 2px var(--bf-gold); }
+.bf-emoji-btn:disabled { opacity: .3; cursor: default; }
+.bf-emoji-btn:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 2px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -815,7 +827,7 @@ select.bf-field {
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v15';
+var BF_VERSION = 'bf-v16';
 
 var BF = {
   sb: null,
@@ -6188,6 +6200,109 @@ BF.boot = async function () {
   await _bfBootF.apply(this, arguments);
   if (BF.screen === 'app') BF.swipeListen();
 };
+
+/* ===================== batch H: pick your own name and emoji (Settings) ===================== */
+
+BF.PROFILE_EMOJI = ['\uD83E\uDD8A', '\uD83D\uDC2F', '\uD83D\uDC30', '\uD83D\uDC3B', '\uD83D\uDC3C', '\uD83D\uDC28', '\uD83D\uDC38', '\uD83D\uDC35', '\uD83D\uDC31', '\uD83D\uDC36', '\uD83D\uDC39', '\uD83D\uDC37', '\uD83D\uDC2E', '\uD83D\uDC14', '\uD83D\uDC27', '\uD83E\uDD81', '\uD83D\uDC19', '\uD83E\uDD84', '\uD83D\uDC22', '\uD83D\uDC33', '\uD83C\uDF5C', '\uD83C\uDF55', '\uD83C\uDF63', '\uD83C\uDF69', '\uD83C\uDF70', '\uD83C\uDF53', '\uD83C\uDF49', '\uD83E\uDD51', '\uD83C\uDF59', '\uD83C\uDF64', '\uD83E\uDDCB', '\uD83C\uDF44'];
+BF.NAME_MAX = 20;
+
+BF.openProfile = function () {
+  var me = BF.me;
+  if (!me) return;
+  var st = { name: String(me.display_name || ''), emoji: me.emoji || '' };
+  var taken = (BF.members || []).filter(function (m) { return m !== me && m.emoji; }).map(function (m) { return m.emoji; });
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'You'));
+    var form = BF.el('div', 'bf-form');
+    var nameIn = BF.input({ value: st.name, placeholder: 'Your name' });
+    nameIn.maxLength = BF.NAME_MAX;
+    var nameWrap = BF.labelled('Name', nameIn);
+    var err = BF.el('p', 'bf-err', 'Needs a name');
+    err.hidden = true;
+    err.setAttribute('role', 'alert');
+    nameWrap.appendChild(err);
+    nameIn.addEventListener('input', function () { err.hidden = true; });
+    form.appendChild(nameWrap);
+    var fs = BF.el('fieldset', 'bf-fieldset');
+    fs.appendChild(BF.el('legend', 'bf-label', 'Your emoji'));
+    var grid = BF.el('div', 'bf-emoji-grid');
+    var btns = [];
+    var sync = function () {
+      btns.forEach(function (b) {
+        var on = b._val === st.emoji;
+        b.classList.toggle('is-on', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    };
+    BF.PROFILE_EMOJI.forEach(function (e) {
+      var b = BF.el('button', 'bf-emoji-btn', e);
+      b.type = 'button';
+      b._val = e;
+      var used = taken.indexOf(e) >= 0;
+      b.disabled = used;
+      if (used) b.setAttribute('aria-label', e + ' (taken)');
+      b.addEventListener('click', function () { st.emoji = e; sync(); });
+      btns.push(b);
+      grid.appendChild(b);
+    });
+    sync();
+    fs.appendChild(grid);
+    fs.appendChild(BF.el('p', 'bf-hint', 'Faded ones are taken by someone else.'));
+    form.appendChild(fs);
+    box.appendChild(form);
+    var acts = BF.el('div', 'bf-sheet-acts');
+    var save = BF.button('Save', 'bf-btn-primary', function () {
+      var name = nameIn.value.trim().slice(0, BF.NAME_MAX);
+      if (!name) { err.hidden = false; BF.shake(nameIn); nameIn.focus(); return; }
+      BF.saveProfile(name, st.emoji || null, save);
+    });
+    acts.appendChild(save);
+    acts.appendChild(BF.button('Cancel', 'bf-btn-ghost', function () { BF.openSettings(); }));
+    box.appendChild(acts);
+  });
+};
+
+/* Each member may change only their own name and emoji (enforced by the database). */
+BF.saveProfile = async function (name, emoji, btn) {
+  var me = BF.me;
+  if (!me) return;
+  btn.disabled = true;
+  btn.textContent = 'Saving\u2026';
+  var rows = null, failed = false;
+  try {
+    rows = BF.q(await BF.sb.from('bf_members').update({ display_name: name, emoji: emoji }).eq('email', me.email).select('email'));
+  } catch (e) {
+    console.warn('profile save failed', e);
+    failed = true;
+  }
+  if (failed || !rows || !rows.length) {
+    btn.disabled = false;
+    btn.textContent = 'Save';
+    BF.toast(failed ? BF.SAVE_FAIL : 'Not allowed yet \u2013 ask Iris to run the profile SQL');
+    return;
+  }
+  var res = await BF.fetchMembers(BF.session);
+  if (res && res.status === 'ok') {
+    BF.me = res.me;
+    BF.members = res.rows;
+    BF.renderAvatars();
+  }
+  BF.openSettings();
+  BF.toast('Saved');
+};
+
+var _bfOpenSettingsH = BF.openSettings;
+BF.openSettings = function () {
+  _bfOpenSettingsH.apply(this, arguments);
+  var you = document.querySelector('#bf-sheet-body .bf-member-you');
+  if (!you) return;
+  var li = you.parentNode;
+  li.classList.add('bf-member-me');
+  li.appendChild(BF.button('Edit', 'bf-btn-ghost bf-btn-sm bf-member-edit', function () { BF.openProfile(); }, 'Edit your name and emoji'));
+};
+BF.openAccount = BF.openSettings;
+BF.$('bf-settings-btn').removeEventListener('click', _bfOpenSettingsH);
+BF.$('bf-settings-btn').addEventListener('click', BF.openSettings);
 
 BF.init();
 </script>
