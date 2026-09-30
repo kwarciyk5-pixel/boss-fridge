@@ -548,6 +548,35 @@ select.bf-field {
 .bf-wheel-fridge .bf-pills-line .bf-pill { padding: 0 5px; }
 .bf-pills-line .bf-pill.bf-pill-gap { margin-left: 4px; }
 
+/* ---------- batch E2b: one-line nominees, wheel filter button ---------- */
+.bf-nom.bf-nom-line { flex-direction: row; align-items: center; gap: 4px; padding: 6px 0; min-height: 46px; }
+.bf-nom-line .bf-nom-name {
+  flex: 1 1 auto; min-width: 0; margin: 0; padding: 0;
+  border: 0; background: transparent; color: var(--bf-ink); text-align: left;
+  font-family: var(--bf-font); font-weight: 900; font-size: 15px; line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bf-nom-line .bf-nom-link { cursor: pointer; min-height: 36px; }
+.bf-nom-line .bf-nom-link:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 2px; border-radius: 6px; }
+.bf-nom-crown { margin-right: 4px; }
+.bf-nom-line .bf-nom-pile { flex: 0 0 auto; margin: 0 2px; font-size: 14px; letter-spacing: 0; }
+.bf-nom-line .bf-react {
+  flex: 0 0 auto; width: 36px; height: 34px; min-width: 0; min-height: 0; padding: 0;
+  border: 2px solid var(--bf-ink); border-radius: 10px; background: var(--bf-card);
+  font-size: 17px; line-height: 1; cursor: pointer;
+}
+.bf-nom-line .bf-react.is-on { background: var(--bf-goldsoft); box-shadow: inset 0 0 0 2px var(--bf-gold); }
+.bf-nom-line .bf-nom-x {
+  flex: 0 0 auto; width: 30px; height: 34px; padding: 0; margin-left: 2px;
+  border: 0; background: transparent; color: var(--bf-muted);
+  font-size: 22px; font-weight: 800; line-height: 1; cursor: pointer;
+}
+.bf-filter-btn { align-self: flex-start; gap: 6px; max-width: 100%; }
+.bf-filter-label { color: var(--bf-muted); }
+.bf-filter-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bf-filter-caret { font-size: 12px; }
+.bf-filter-count { margin-top: -2px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -684,7 +713,7 @@ select.bf-field {
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v11';
+var BF_VERSION = 'bf-v12';
 
 var BF = {
   sb: null,
@@ -4799,6 +4828,123 @@ BF.spinNominees = function () {
   BF.wheel.result = null;
   BF.goPlay('wheel');
   BF.spin();
+};
+
+/* ===================== batch E2b: one-line nominees, wheel filter overlay, clearer empty wheel ===================== */
+
+/* ---------- board: one line per nominee ---------- */
+var _bfBuildBoardE2 = BF.buildBoardUI;
+BF.buildBoardUI = function () {
+  var ui = _bfBuildBoardE2.apply(this, arguments);
+  var hint = ui.card.querySelector('.bf-hint');
+  if (hint) hint.remove();
+  ui.field.placeholder = 'A dish for tomorrow';
+  return ui;
+};
+
+BF.nomRow = function (row, isLead) {
+  var el = BF.el('div', 'bf-nom bf-nom-line');
+  var dish = BF.boardDish(row);
+  var name = BF.el(dish ? 'button' : 'span', 'bf-nom-name' + (dish ? ' bf-nom-link' : ''));
+  if (isLead) {
+    var crown = BF.el('span', 'bf-nom-crown', '\uD83D\uDC51');
+    crown.setAttribute('aria-label', 'Front-runner');
+    crown.setAttribute('role', 'img');
+    name.appendChild(crown);
+  }
+  name.appendChild(document.createTextNode(row.label));
+  if (dish) {
+    name.type = 'button';
+    name.addEventListener('click', function () { BF.openDishSheet(dish.id); });
+  }
+  el.appendChild(name);
+  var pile = BF.el('span', 'bf-nom-pile', BF.boardPile(row.id));
+  pile.setAttribute('aria-label', 'Reactions');
+  el.appendChild(pile);
+  var mine = BF.myVote(row.id);
+  BF.BOARD_EMOJI.forEach(function (e, i) {
+    var on = !!(mine && mine.emoji === e);
+    var b = BF.el('button', 'bf-react' + (on ? ' is-on' : ''), e);
+    b.type = 'button';
+    b.setAttribute('aria-label', BF.BOARD_EMOJI_NAME[i] + ' ' + row.label);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.addEventListener('click', function () { BF.react(row, e); });
+    el.appendChild(b);
+  });
+  var x = BF.el('button', 'bf-nom-x', '\u00D7');
+  x.type = 'button';
+  x.setAttribute('aria-label', 'Remove ' + row.label);
+  x.addEventListener('click', function () { BF.removeNomination(row); });
+  el.appendChild(x);
+  return el;
+};
+
+/* ---------- wheel: Fridge filter as one button that opens an overlay ---------- */
+BF.WHEEL_SHOW = [[false, 'All food'], [true, 'Ready to heat only']];
+BF.WHEEL_WHERE = [['all', 'Anywhere'], ['fridge', 'Fridge'], ['freezer', 'Freezer'], ['storage', 'Storage']];
+
+BF.wheelFilterText = function () {
+  var w = BF.wheel;
+  var where = BF.WHEEL_WHERE.filter(function (x) { return x[0] === w.loc; })[0];
+  return (w.readyOnly ? 'Ready to heat' : 'All food') + ' \u00B7 ' + (where ? where[1] : 'Anywhere');
+};
+
+BF.openWheelFilter = function () {
+  if (BF.wheel.spinning) return;
+  var apply = function () { BF.wheel.result = null; BF.renderPlay(); };
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Spin from the fridge'));
+    var form = BF.el('div', 'bf-form');
+    form.appendChild(BF.pillGroup('Show', BF.WHEEL_SHOW,
+      function () { return BF.wheel.readyOnly; }, function (v) { BF.wheel.readyOnly = v; apply(); }));
+    form.appendChild(BF.pillGroup('Where', BF.WHEEL_WHERE,
+      function () { return BF.wheel.loc; }, function (v) { BF.wheel.loc = v; apply(); }));
+    var status = BF.el('p', 'bf-hint bf-filter-count');
+    status.setAttribute('role', 'status');
+    var sync = function () {
+      var n = BF.wheelOptions().length;
+      status.textContent = n === 0 ? 'Nothing matches yet.' : n === 1 ? 'Only 1 thing matches.' : n + ' things on the wheel.';
+    };
+    form.querySelectorAll('.bf-fieldset').forEach(function (fs) { fs._onChange = sync; });
+    sync();
+    form.appendChild(status);
+    box.appendChild(form);
+    var acts = BF.el('div', 'bf-sheet-acts');
+    acts.appendChild(BF.button('Done', 'bf-btn-primary', function () { BF.closeSheet(); }));
+    box.appendChild(acts);
+  });
+};
+
+var _bfBuildPlayE2 = BF.buildPlayUI;
+BF.buildPlayUI = function () {
+  var ui = _bfBuildPlayE2.apply(this, arguments);
+  var btn = BF.button('', 'bf-btn-sm bf-filter-btn', function () { BF.openWheelFilter(); });
+  btn.setAttribute('aria-haspopup', 'dialog');
+  var label = BF.el('span', 'bf-filter-label', 'Filter');
+  var value = BF.el('span', 'bf-filter-value');
+  btn.appendChild(label);
+  btn.appendChild(value);
+  btn.appendChild(BF.el('span', 'bf-filter-caret', '\u25BE'));
+  ui.fridgeOpts.replaceChildren(btn);
+  ui.filterBtn = btn;
+  ui.filterValue = value;
+  return ui;
+};
+
+var _bfRenderPlayE2 = BF.renderPlay;
+BF.renderPlay = function () {
+  _bfRenderPlayE2.apply(this, arguments);
+  var ui = BF.playUI;
+  if (!ui || !ui.filterBtn) return;
+  var w = BF.wheel;
+  ui.filterValue.textContent = BF.wheelFilterText();
+  ui.filterBtn.disabled = w.spinning;
+  if (w.source === 'fridge' && !ui.empty.hidden && !w.spinning) {
+    var all = BF.wheelOptions();
+    ui.empty.textContent = all.length === 1
+      ? 'Only one here: ' + all[0].label + '. Change the filter to add more.'
+      : (w.readyOnly ? 'Nothing ready to heat here.' : 'Nothing here yet.') + ' Change the filter, or add food on the Fridge tab.';
+  }
 };
 
 BF.init();
