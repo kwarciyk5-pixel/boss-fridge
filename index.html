@@ -421,6 +421,11 @@ input[type="date"].bf-field { width: auto; min-width: 170px; display: inline-blo
 .bf-linkrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .bf-hist-name { font-weight: 800; overflow-wrap: anywhere; }
 
+/* ---------- batch B4: clear all data ---------- */
+.bf-btn-danger { background: var(--bf-hot); color: var(--bf-bg); }
+.bf-hist-name + .bf-meta { margin-top: 2px; }
+.bf-clear-acts { display: flex; flex-direction: column; gap: 10px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -538,7 +543,7 @@ input[type="date"].bf-field { width: auto; min-width: 170px; display: inline-blo
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v4';
+var BF_VERSION = 'bf-v5';
 
 var BF = {
   sb: null,
@@ -2680,6 +2685,244 @@ BF.openHistory = function () {
     });
   });
 };
+
+/* ===================== batch B4: History in backups + Clear all data ===================== */
+
+/* ---------- History joins Export / Import ---------- */
+BF.BACKUP.push({ label: 'History', short: 'history', slug: 'history', tables: ['bf_history'] });
+BF.COLUMNS.bf_history = ['id', 'action', 'label', 'data', 'done_by', 'done_at'];
+BF.WRITE_ORDER.push('bf_history');
+BF.DELETE_ORDER = BF.WRITE_ORDER.slice().reverse();
+
+var _bfRowProblemB2 = BF.rowProblem;
+BF.rowProblem = function (t, r) {
+  if (t === 'bf_history') {
+    if (!Object.prototype.hasOwnProperty.call(BF.HISTORY_TEXT, r.action)) return 'bad action';
+    if (r.label == null) delete r.label;
+    else if (typeof r.label !== 'string') r.label = String(r.label);
+    if (r.data == null) delete r.data;
+    return null;
+  }
+  return _bfRowProblemB2.apply(this, arguments);
+};
+
+var _bfWithDefaultsB2 = BF.withDefaults;
+BF.withDefaults = function (t, r) {
+  var o = _bfWithDefaultsB2.apply(this, arguments);
+  if (t === 'bf_history') {
+    if (o.label == null) o.label = '';
+    if (o.data == null) o.data = {};
+  }
+  return o;
+};
+
+/* ---------- Clear all data ---------- */
+BF.CLEAR_KEEP = ['bf_members'];   // tables Clear all never touches (add a future settings table here)
+BF.CLEAR_WORD = 'CLEAR';
+
+BF.clearTables = function () {
+  return BF.DELETE_ORDER.filter(function (t) { return BF.CLEAR_KEEP.indexOf(t) < 0; });
+};
+
+BF.allLabels = function () { return BF.BACKUP.map(function (s) { return s.label; }); };
+
+/* True when two buildExport results hold the same rows in every table Clear all deletes. */
+BF.sameBackup = function (a, b) {
+  return BF.clearTables().every(function (t) {
+    return JSON.stringify(a.obj.tables[t] || []) === JSON.stringify(b.obj.tables[t] || []);
+  });
+};
+
+/* Delete every row of every clearable table. Throws BF.tableError (written = tables already cleared). */
+BF.clearAll = async function (onProgress) {
+  var say = typeof onProgress === 'function' ? onProgress : function () {};
+  var ts = BF.clearTables();
+  for (var i = 0; i < ts.length; i++) {
+    var t = ts[i];
+    var sec = BF.sectionOf(t);
+    say('Clearing ' + (sec ? sec.short : t) + '...');
+    var r;
+    try {
+      r = await BF.sb.from(t).delete().not(BF.keyCols(t)[0], 'is', null);
+    } catch (e) { throw BF.tableError(t, e, i, 0); }
+    if (r.error) throw BF.tableError(t, r.error, i, r.status);
+  }
+  return ts.length;
+};
+
+BF.openClearAll = function () {
+  var ready = null;      // buildExport result the next tap will save
+  var saved = null;      // the backup that was saved before clearing
+  var building = false;
+  var busy = false;
+  var done = false;
+
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Clear all data'));
+    var warn = BF.el('div', 'bf-result bf-result-err',
+      'This deletes everything, for everyone, on every phone:\n' +
+      BF.BACKUP.map(function (s) { return '\u2022 ' + s.label; }).join('\n'));
+    box.appendChild(warn);
+    box.appendChild(BF.el('p', 'bf-hint', 'Members stay. Boss Fridge will be like a new app.'));
+    box.appendChild(BF.el('p', 'bf-hint', 'A backup of everything downloads first (on iPhone, pick Save to Files). Keep it \u2013 importing it with Restore is the only way back.'));
+
+    var form = BF.el('div', 'bf-form');
+    var inp = BF.input({ placeholder: BF.CLEAR_WORD });
+    inp.setAttribute('autocapitalize', 'characters');
+    inp.setAttribute('autocorrect', 'off');
+    inp.spellcheck = false;
+    form.appendChild(BF.labelled('Type ' + BF.CLEAR_WORD + ' to continue', inp));
+    var go = BF.button('Get backup ready', 'bf-btn-danger bf-btn-wide');
+    form.appendChild(go);
+    var status = BF.el('p', 'bf-hint');
+    status.setAttribute('role', 'status');
+    form.appendChild(status);
+    var result = BF.el('div', 'bf-result');
+    result.hidden = true;
+    form.appendChild(result);
+    var after = BF.el('div', 'bf-clear-acts');
+    after.hidden = true;
+    form.appendChild(after);
+    box.appendChild(form);
+
+    var armed = function () { return inp.value.trim().toUpperCase() === BF.CLEAR_WORD; };
+    var sync = function () {
+      inp.disabled = busy || done;
+      go.hidden = done;
+      go.textContent = building ? 'Getting backup ready\u2026' : (ready ? 'Download backup and clear' : 'Get backup ready');
+      go.disabled = busy || building || done || !armed();
+    };
+    var showResult = function (text, isErr) {
+      result.className = 'bf-result' + (isErr ? ' bf-result-err' : '');
+      result.textContent = text;
+      result.hidden = false;
+    };
+
+    var showAfter = function () {
+      after.replaceChildren();
+      var ta = BF.input({ tag: 'textarea' });
+      ta.className = 'bf-field bf-json';
+      ta.readOnly = true;
+      ta.hidden = true;
+      ta.setAttribute('aria-label', 'Backup JSON');
+      after.appendChild(BF.button('Save the backup again', 'bf-btn-wide', function () {
+        BF.saveFile(saved.json, saved.filename);
+      }));
+      after.appendChild(BF.button('Copy backup for Claude', 'bf-btn-wide', async function () {
+        if (await BF.copyText(saved.json)) { BF.toast('Backup copied'); return; }
+        ta.value = saved.json;
+        ta.hidden = false;
+        ta.focus();
+        ta.select();
+      }));
+      after.appendChild(ta);
+      after.appendChild(BF.button('Done', 'bf-btn-gold bf-btn-wide', BF.closeSheet));
+      after.hidden = false;
+    };
+
+    /* Build the backup ahead of the tap, so the tap can open the share sheet straight away
+       (iPhone only allows the share sheet right after a tap). */
+    var prepare = async function () {
+      if (building || busy || done || !armed()) { sync(); return; }
+      building = true;
+      ready = null;
+      status.textContent = 'Getting your backup ready...';
+      sync();
+      try {
+        ready = await BF.buildExport(BF.allLabels());
+        status.textContent = 'Backup ready. Nothing is deleted until you tap.';
+      } catch (e) {
+        ready = null;
+        status.textContent = BF.exportErrorText(e);
+      }
+      building = false;
+      sync();
+    };
+
+    var run = async function () {
+      if (busy || building || done || !ready || !armed()) return;
+      busy = true;
+      sync();
+      result.hidden = true;
+      var ex = ready;
+      status.textContent = 'Saving your backup...';
+      var how;
+      try { how = await BF.saveFile(ex.json, ex.filename); } catch (e) { how = 'failed'; }
+      if (how === 'cancelled' || how === 'failed') {
+        status.textContent = 'Backup not saved \u2013 nothing was deleted.';
+        busy = false;
+        sync();
+        return;
+      }
+      status.textContent = 'Checking nothing changed...';
+      var again;
+      try {
+        again = await BF.buildExport(BF.allLabels());
+      } catch (e) {
+        status.textContent = BF.exportErrorText(e) + ' Nothing was deleted.';
+        busy = false;
+        sync();
+        return;
+      }
+      if (!BF.sameBackup(ex, again)) {
+        ready = again;
+        status.textContent = 'Something changed while you were deciding. Nothing was deleted \u2013 tap again to save a fresh backup and clear.';
+        busy = false;
+        sync();
+        return;
+      }
+      saved = ex;
+      try {
+        await BF.clearAll(function (msg) { status.textContent = msg; });
+      } catch (e) {
+        status.textContent = '';
+        showResult('Stopped at ' + (e.table || 'an unknown table') + ': ' + (e.message || 'unknown error') + '.\n' +
+          'Some data may already be gone. Your backup (' + ex.filename + ') has everything \u2013 import it with Restore to put it back.', true);
+        busy = false;
+        ready = null;
+        inp.value = '';
+        sync();
+        showAfter();
+        BF.loadData();
+        return;
+      }
+      done = true;
+      busy = false;
+      status.textContent = '';
+      showResult('All clear. Boss Fridge is like new.\nBackup: ' + ex.filename);
+      sync();
+      showAfter();
+      BF.toast('All clear');
+      BF.loadData();
+    };
+
+    inp.addEventListener('input', function () {
+      if (!armed()) { status.textContent = ''; sync(); return; }
+      if (!ready && !building) prepare(); else sync();
+    });
+    go.addEventListener('click', function () {
+      if (ready) run(); else prepare();
+    });
+    sync();
+  });
+};
+
+/* ---------- Settings: "Start over" block above Sign out ---------- */
+var _bfOpenSettingsB2 = BF.openSettings;
+BF.openSettings = function () {
+  _bfOpenSettingsB2.apply(this, arguments);
+  var body = BF.$('bf-sheet-body');
+  var wrap = BF.el('div');
+  wrap.appendChild(BF.setHead('Start over'));
+  wrap.appendChild(BF.button('Clear all data\u2026', 'bf-btn-danger bf-btn-wide', BF.openClearAll));
+  wrap.appendChild(BF.el('p', 'bf-hint bf-set-tip', 'Deletes everything except members, for everyone. A backup downloads first.'));
+  var out = body.querySelector('.bf-set-signout');
+  if (out && out.parentNode === body) body.insertBefore(wrap, out);
+  else body.appendChild(wrap);
+};
+BF.openAccount = BF.openSettings;
+BF.$('bf-settings-btn').removeEventListener('click', _bfOpenSettingsB2);
+BF.$('bf-settings-btn').addEventListener('click', BF.openSettings);
 
 BF.init();
 </script>
