@@ -625,6 +625,35 @@ select.bf-field {
 .bf-act-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .bf-act-main { min-height: 48px; font-size: 17px; }
 
+/* ---------- batch G: Boss minions + Cook ---------- */
+.bf-boss-hero .bf-minions { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+.bf-minion {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  min-height: 36px; padding: 0 10px 0 6px;
+  border: 2px solid var(--bf-ink); border-radius: 999px; background: var(--bf-card); color: var(--bf-ink);
+  font-family: var(--bf-font); cursor: pointer;
+}
+.bf-minion.is-hot { background: var(--bf-peach); }
+.bf-minion-blob {
+  flex: 0 0 auto; width: 20px; height: 18px; border: 2px solid var(--bf-ink);
+  border-radius: 55% 45% 50% 50% / 60% 60% 40% 40%; background: var(--bf-goldsoft);
+  position: relative;
+}
+.bf-minion.is-hot .bf-minion-blob { background: var(--bf-card); }
+.bf-minion-blob::before, .bf-minion-blob::after {
+  content: ""; position: absolute; top: 5px; width: 3px; height: 3px; border-radius: 50%; background: var(--bf-ink);
+}
+.bf-minion-blob::before { left: 4px; }
+.bf-minion-blob::after { right: 4px; }
+.bf-minion-name { font-weight: 900; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bf-minion-when { font-weight: 700; font-size: 11.5px; color: var(--bf-muted); white-space: nowrap; }
+.bf-minion.is-hot .bf-minion-when { color: var(--bf-hot); }
+.bf-defeated { flex: 1 1 100%; margin: 0; font-size: 12.5px; font-weight: 700; color: var(--bf-muted); overflow-wrap: anywhere; }
+.bf-push { margin-top: 12px; }
+.bf-unleft { margin-top: 10px; }
+.bf-cook-card { display: flex; flex-direction: column; gap: 10px; }
+.bf-cook-add { flex: 0 0 auto; min-height: 32px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -761,7 +790,7 @@ select.bf-field {
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v13';
+var BF_VERSION = 'bf-v14';
 
 var BF = {
   sb: null,
@@ -5316,6 +5345,334 @@ BF.openDishActions = function (id) {
     acts.appendChild(row);
     box.appendChild(acts);
   });
+};
+
+/* ===================== batch G: the Boss (minions, banter, actions) + Cook from what we have ===================== */
+
+BF.BOSS_DAYS = 3;
+BF.DEFEATED_DAYS = 3;
+
+/* Banter. {name} = one minion's name. Draft lines - Iris edits later. */
+BF.BANTER_IDLE = [
+  'All quiet in my kingdom. Suspiciously quiet.',
+  'Nothing is plotting against you. For now.',
+  'I am the Boss. The shelves obey me.',
+  'Feed me groceries and I shall reign forever.',
+  'No minions today. I am almost bored.',
+  'My crown is shiny. My shelves are calm.',
+  'Go on, open the door. I dare you.',
+  'Everything in here is behaving. Remarkable.',
+  'Spin the wheel, peasants. I am resting.',
+  'A peaceful day in the cold palace.'
+];
+BF.BANTER_MINIONS = [
+  '{name} is plotting in here. Defeat it!',
+  'My minion {name} grows bolder by the hour.',
+  '{name} thinks you forgot about it. Prove it wrong.',
+  'Beware: {name} has joined my army.',
+  '{name} is getting cocky. Eat it before it rebels.',
+  'I sent {name} to test you. Choose wisely.',
+  '{name} whispers your name at night.',
+  'Defeat {name} and I may spare the rest.',
+  'Tick tock. {name} is on the clock.',
+  '{name} has claimed the front shelf. Unacceptable.'
+];
+
+/* Minions: expiry within 3 days (or passed), plus every leftover. Soonest first. */
+BF.minions = function () {
+  var out = BF.data.items.filter(function (it) {
+    var d = BF.daysUntil(it.expiry);
+    return it.leftover || (d !== null && d <= BF.BOSS_DAYS);
+  });
+  return out.map(function (it, i) { return { it: it, i: i, r: BF.soonRank(it) }; })
+    .sort(function (a, b) { return a.r - b.r || a.i - b.i; })
+    .map(function (o) { return o.it; });
+};
+
+/* Same line all day for the same situation, so it doesn't flicker on every reload. */
+BF.banter = function (mins) {
+  var list = mins.length ? BF.BANTER_MINIONS : BF.BANTER_IDLE;
+  var seed = BF.today() + '|' + mins.map(function (m) { return m.id; }).join(',');
+  var h = 0;
+  for (var i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  var line = list[h % list.length];
+  if (mins.length) line = line.replace('{name}', String(mins[0].name == null ? '' : mins[0].name));
+  return line;
+};
+
+BF.defeatedRecently = function () {
+  var since = Date.now() - BF.DEFEATED_DAYS * 86400000;
+  var seen = [];
+  (BF.lib.eaten || []).slice().sort(function (a, b) { return BF.tsMs(b.eaten_at) - BF.tsMs(a.eaten_at); }).forEach(function (e) {
+    if (BF.tsMs(e.eaten_at) < since) return;
+    var d = e.dish_id != null ? BF.findDish(e.dish_id) : null;
+    var n = String((d && d.name) || e.item_name || '').trim();
+    if (n && !seen.some(function (x) { return BF.sameName(x, n); })) seen.push(n);
+  });
+  return seen.slice(0, 8);
+};
+
+/* ---------- Boss card (replaces the placeholder hero) ---------- */
+BF.minionWhen = function (it) {
+  var d = BF.daysUntil(it.expiry);
+  if (d !== null && d < 0) return 'gone off ' + BF.expiryText(it.expiry);
+  if (d !== null && d <= BF.BOSS_DAYS) return BF.expiryText(it.expiry);
+  return 'leftover';
+};
+
+BF.renderBoss = function () {
+  var hero = BF.$('bf-tab-boss-soon');
+  if (!hero) return;
+  var bubble = hero.querySelector('.bf-bubble');
+  if (!BF.bossHero) {
+    hero.classList.add('bf-boss-hero');
+    var minBox = BF.el('div', 'bf-minions');
+    var defeated = BF.el('p', 'bf-defeated');
+    hero.appendChild(minBox);
+    hero.appendChild(defeated);
+    BF.bossHero = { minions: minBox, defeated: defeated };
+  }
+  var ui = BF.bossHero;
+  if (!BF.data.loaded) return;
+  var mins = BF.minions();
+  if (bubble) bubble.textContent = BF.banter(mins);
+  ui.minions.replaceChildren();
+  ui.minions.hidden = !mins.length;
+  mins.forEach(function (it) {
+    var b = BF.el('button', 'bf-minion');
+    b.type = 'button';
+    var d = BF.daysUntil(it.expiry);
+    if (d !== null && d <= 0) b.classList.add('is-hot');
+    b.appendChild(BF.el('span', 'bf-minion-blob'));
+    b.appendChild(BF.el('span', 'bf-minion-name', String(it.name == null ? '' : it.name)));
+    b.appendChild(BF.el('span', 'bf-minion-when', BF.minionWhen(it)));
+    b.addEventListener('click', function () { BF.openMinion(it.id); });
+    ui.minions.appendChild(b);
+  });
+  var gone = BF.defeatedRecently();
+  ui.defeated.hidden = !gone.length;
+  ui.defeated.textContent = gone.length ? 'Defeated recently: ' + gone.join(', ') : '';
+};
+
+/* Tap a minion: Ate it / Cooked it into something / Tossed it / Push expiry. */
+BF.openMinion = function (id) {
+  var it = BF.findItem(id);
+  if (!it) return;
+  var name = String(it.name == null ? '' : it.name);
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', name));
+    var meta = [BF.locLabel(it.location)];
+    if (it.count != null) meta.push('\u00D7' + it.count);
+    meta.push(BF.minionWhen(it));
+    box.appendChild(BF.el('p', 'bf-hint bf-act-meta', meta.join(' \u00B7 ')));
+    var acts = BF.el('div', 'bf-act-list');
+    acts.appendChild(BF.button('Ate it', 'bf-btn-primary bf-btn-wide bf-act-main', function () { BF.closeSheet(); BF.ateIt(id); }));
+    var row = BF.el('div', 'bf-sheet-acts');
+    row.appendChild(BF.button('Cooked it into something', '', function () { BF.closeSheet(); BF.ateIt(id); }));
+    row.appendChild(BF.button('Tossed it', 'bf-btn-ghost', function () { BF.closeSheet(); BF.tossIt(id); }));
+    acts.appendChild(row);
+    box.appendChild(acts);
+    var push = BF.el('fieldset', 'bf-fieldset bf-push');
+    push.appendChild(BF.el('legend', 'bf-label', 'Push expiry'));
+    var pr = BF.el('div', 'bf-pills');
+    [[1, '+1 day'], [3, '+3 days'], [7, '+1 week']].forEach(function (o) {
+      pr.appendChild(BF.button(o[1], 'bf-pill', function () { BF.closeSheet(); BF.pushExpiry(id, o[0]); }));
+    });
+    push.appendChild(pr);
+    box.appendChild(push);
+    if (it.leftover) {
+      box.appendChild(BF.button('Not a leftover any more', 'bf-btn-ghost bf-btn-sm bf-unleft', function () { BF.closeSheet(); BF.unLeftover(id); }));
+    }
+  });
+};
+
+/* Tossed it: removed, no eaten-log row; History "Tossed" with Put back. */
+BF.tossIt = async function (id) {
+  var old = BF.findItem(id);
+  if (!old) return;
+  var h = { id: null, action: 'tossed', label: old.name, data: { item: old } };
+  var res = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_items').delete().eq('id', id));
+    h.id = await BF.logHistory('tossed', old.name, h.data);
+  });
+  if (res === false) return;
+  BF.toast('Tossed ' + old.name, function () { BF.putBack(h); });
+};
+
+/* Push from today or from the current date, whichever is later. */
+BF.pushExpiry = async function (id, days) {
+  var it = BF.findItem(id);
+  if (!it) return;
+  var from = it.expiry && String(it.expiry).slice(0, 10) > BF.today() ? String(it.expiry).slice(0, 10) : BF.today();
+  var p = from.split('-');
+  var next = BF.ymd(new Date(+p[0], +p[1] - 1, +p[2] + days, 12));
+  var old = it.expiry == null ? null : String(it.expiry).slice(0, 10);
+  var ok = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_items').update({ expiry: next }).eq('id', id));
+  });
+  if (ok === false) return;
+  BF.toast(it.name + ' now goes off ' + BF.expiryText(next), function () {
+    BF.run(async function () { BF.q(await BF.sb.from('bf_items').update({ expiry: old }).eq('id', id)); });
+  });
+};
+
+BF.unLeftover = async function (id) {
+  var it = BF.findItem(id);
+  if (!it) return;
+  var ok = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_items').update({ leftover: false }).eq('id', id));
+  });
+  if (ok === false) return;
+  BF.toast(it.name + ' is not a leftover', function () {
+    BF.run(async function () { BF.q(await BF.sb.from('bf_items').update({ leftover: true }).eq('id', id)); });
+  });
+};
+
+var _bfPutBackE = BF.putBack;
+BF.putBack = function (h) {
+  if (h && h.action === 'tossed') {
+    var d = h;
+    return _bfPutBackE.call(this, Object.assign({}, d, { action: 'deleted' }));
+  }
+  return _bfPutBackE.apply(this, arguments);
+};
+
+var _bfHistoryRowC = BF.historyRow;
+BF.historyRow = function (h) {
+  var row = _bfHistoryRowC.apply(this, arguments);
+  if (h.action === 'tossed' && !row.querySelector('.bf-row-acts')) {
+    var name = String(h.label == null ? '' : h.label);
+    var acts = BF.el('div', 'bf-row-acts');
+    acts.appendChild(BF.button('Put back', 'bf-btn-sm', function (e) {
+      e.currentTarget.disabled = true;
+      BF.closeSheet();
+      BF.putBack(h);
+    }, 'Put back ' + name));
+    row.appendChild(acts);
+  }
+  return row;
+};
+
+/* ---------- Cook from what we have (Play tab) ---------- */
+BF.norm = function (s) { return String(s == null ? '' : s).trim().toLowerCase(); };
+
+/* An ingredient is in the house when a fridge item's name contains it (case and spaces ignored). */
+BF.haveIngredient = function (ing, names) {
+  var x = BF.norm(ing);
+  if (!x) return true;
+  return names.some(function (n) { return n.indexOf(x) >= 0; });
+};
+
+BF.cookMatches = function () {
+  var names = BF.data.items.map(function (it) { return BF.norm(it.name); }).filter(Boolean);
+  var can = [], one = [], noIng = 0;
+  BF.lib.dishes.slice().sort(BF.byName).forEach(function (d) {
+    if ((d.kind || 'home') !== 'home') return;
+    var ings = BF.ingredientsOf(d);
+    if (!ings.length) { noIng++; return; }
+    var missing = ings.filter(function (x) { return !BF.haveIngredient(x, names); });
+    if (!missing.length) can.push(d);
+    else if (missing.length === 1) one.push({ dish: d, missing: missing[0] });
+  });
+  return { can: can, one: one, noIng: noIng };
+};
+
+BF.buildCookUI = function () {
+  var card = BF.el('section', 'bf-card bf-cook-card');
+  card.appendChild(BF.el('h2', 'bf-spin-title', 'Cook from what we have'));
+  var body = BF.el('div', 'bf-stack');
+  card.appendChild(body);
+  return { card: card, body: body };
+};
+
+BF.renderCook = function () {
+  var ui = BF.playUI && BF.playUI.cook;
+  if (!ui) return;
+  ui.body.replaceChildren();
+  if (!BF.data.loaded || !BF.lib.loaded) return;
+  var m = BF.cookMatches();
+  var canLines = m.can.map(function (d) {
+    var l = BF.el('button', 'bf-line');
+    l.type = 'button';
+    l.appendChild(BF.el('span', 'bf-line-name', String(d.name)));
+    l.addEventListener('click', function () { BF.openDishActions(d.id); });
+    return l;
+  });
+  var oneLines = m.one.map(function (o) {
+    var l = BF.el('div', 'bf-line bf-line-dish');
+    var nb = BF.el('button', 'bf-line-main');
+    nb.type = 'button';
+    nb.appendChild(BF.el('span', 'bf-line-name', String(o.dish.name)));
+    nb.appendChild(BF.el('span', 'bf-line-when', 'needs ' + o.missing));
+    nb.addEventListener('click', function () { BF.openDishActions(o.dish.id); });
+    l.appendChild(nb);
+    var on = !!BF.onList(o.missing);
+    var add = BF.button(on ? 'On list' : '+ Shop', 'bf-btn-sm bf-cook-add', function () { add.disabled = true; BF.runningLow(o.missing); }, 'Add ' + o.missing + ' to the shopping list');
+    add.disabled = on;
+    l.appendChild(add);
+    return l;
+  });
+  if (canLines.length) ui.body.appendChild(BF.note('cook:can', 'Can make now', canLines, 'ice', false));
+  if (oneLines.length) ui.body.appendChild(BF.note('cook:one', 'Missing one', oneLines, 'gold', false));
+  if (!canLines.length && !oneLines.length) {
+    ui.body.appendChild(BF.el('p', 'bf-empty', 'Nothing matches the fridge right now.'));
+  }
+  if (m.noIng) {
+    ui.body.appendChild(BF.el('p', 'bf-hint', m.noIng === 1
+      ? '1 home-cooked dish has no ingredients yet. Add them in the Library to see it here.'
+      : m.noIng + ' home-cooked dishes have no ingredients yet. Add them in the Library to see them here.'));
+  }
+};
+
+/* Add Cook to the Play switcher. */
+BF.PLAY_VIEWS = [['wheel', 'Wheel'], ['board', 'Board'], ['cook', 'Cook']];
+try { if (localStorage.getItem('bf-play-view') === 'cook') BF.playView = 'cook'; } catch (e) { /* ignore */ }
+
+var _bfBuildPlayE3 = BF.buildPlayUI;
+BF.buildPlayUI = function () {
+  var ui = _bfBuildPlayE3.apply(this, arguments);
+  var body = BF.$('bf-tab-play-body');
+  ui.cook = BF.buildCookUI();
+  var cookPane = BF.el('div', 'bf-stack');
+  cookPane.appendChild(ui.cook.card);
+  body.appendChild(cookPane);
+  ui.cookPane = cookPane;
+  return ui;
+};
+
+BF.setPlayView = function (v) {
+  BF.playView = (v === 'board' || v === 'cook') ? v : 'wheel';
+  try { localStorage.setItem('bf-play-view', BF.playView); } catch (e) { /* ignore */ }
+  BF.renderPlay();
+  BF.$('bf-main').scrollTop = 0;
+};
+
+var _bfRenderPlayE3 = BF.renderPlay;
+BF.renderPlay = function () {
+  _bfRenderPlayE3.apply(this, arguments);
+  var ui = BF.playUI;
+  if (!ui || !ui.cookPane) return;
+  ui.cookPane.hidden = BF.playView !== 'cook';
+  if (BF.playView === 'cook') BF.renderCook();
+};
+
+/* Folding a Cook note re-renders Cook, not the Fridge. */
+var _bfNoteE3 = BF.note;
+BF.note = function (key) {
+  var n = _bfNoteE3.apply(this, arguments);
+  if (String(key).indexOf('cook:') === 0) {
+    var head = n.querySelector('.bf-note-head');
+    var fresh = head.cloneNode(true);
+    fresh.addEventListener('click', function () { BF.toggleFold(key); BF.renderCook(); });
+    head.parentNode.replaceChild(fresh, head);
+  }
+  return n;
+};
+
+/* Every data reload redraws the Boss card. */
+var _bfLoadDataG = BF.loadData;
+BF.loadData = function () {
+  return _bfLoadDataG.apply(this, arguments).then(function () { BF.renderBoss(); });
 };
 
 BF.init();
