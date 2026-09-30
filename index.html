@@ -691,6 +691,10 @@ select.bf-field {
 .bf-emoji-btn:disabled { opacity: .3; cursor: default; }
 .bf-emoji-btn:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 2px; }
 
+/* ---------- batch I: small fixes ---------- */
+.bf-toast-layer.is-top { top: calc(12px + env(safe-area-inset-top)); bottom: auto; }
+.bf-hist-noname { color: var(--bf-muted); font-style: italic; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -827,7 +831,7 @@ select.bf-field {
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v16';
+var BF_VERSION = 'bf-v17';
 
 var BF = {
   sb: null,
@@ -6303,6 +6307,43 @@ BF.openSettings = function () {
 BF.openAccount = BF.openSettings;
 BF.$('bf-settings-btn').removeEventListener('click', _bfOpenSettingsH);
 BF.$('bf-settings-btn').addEventListener('click', BF.openSettings);
+
+/* ===================== batch I: small fixes ===================== */
+
+/* History: an entry with an empty name reads "(no name)". */
+var _bfHistoryRowG = BF.historyRow;
+BF.historyRow = function (h) {
+  var row = _bfHistoryRowG.apply(this, arguments);
+  if (!String(h && h.label != null ? h.label : '').trim()) {
+    var n = row.querySelector('.bf-hist-name');
+    if (n) { n.textContent = '(no name)'; n.classList.add('bf-hist-noname'); }
+  }
+  return row;
+};
+
+/* While a sheet is open, toasts show at the top so they don't cover the sheet's result box. */
+var _bfToastH = BF.toast;
+BF.toast = function () {
+  _bfToastH.apply(this, arguments);
+  var sheet = BF.$('bf-sheet');
+  BF.$('bf-toast-layer').classList.toggle('is-top', !!sheet && !sheet.hidden);
+};
+
+/* A duplicate dish name refused by the database (unique name index) gets a clear message. */
+var _bfSheetSaveH = BF.sheetSave;
+BF.sheetSave = function (btn, fn) {
+  return _bfSheetSaveH.call(this, btn, async function () {
+    try {
+      return await fn.apply(this, arguments);
+    } catch (e) {
+      if (e && (e.code === '23505' || /bf_dishes_name_uniq/.test(String(e.message || '')))) {
+        e.message = 'Already in the library';
+        setTimeout(function () { BF.toast('That dish is already in the library'); }, 0);
+      }
+      throw e;
+    }
+  });
+};
 
 BF.init();
 </script>
