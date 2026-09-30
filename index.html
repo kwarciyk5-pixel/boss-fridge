@@ -553,12 +553,33 @@ select.bf-field {
   </div>
 </div>
 
+<script>
+/* Startup watchdog. Every screen starts hidden, so a stalled library download or a login check that
+   never answers (flaky network after airplane mode) would leave a blank page. After 8 s with no screen
+   showing, show the napping screen; while startup is stuck, Try again / coming back online reloads. */
+(function () {
+  var stuck = false;
+  var reload = function () {
+    var nap = document.getElementById('bf-screen-napping');
+    if (stuck && nap && !nap.hidden) location.reload();
+  };
+  setTimeout(function () {
+    if (document.querySelector('.bf-screen:not([hidden])')) return;
+    stuck = true;
+    var nap = document.getElementById('bf-screen-napping');
+    if (nap) nap.hidden = false;
+  }, 8000);
+  var btn = document.getElementById('bf-retry-btn');
+  if (btn) btn.addEventListener('click', reload);
+  window.addEventListener('online', reload);
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v6';
+var BF_VERSION = 'bf-v7';
 
 var BF = {
   sb: null,
