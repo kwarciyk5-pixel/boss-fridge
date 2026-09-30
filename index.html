@@ -577,6 +577,54 @@ select.bf-field {
 .bf-filter-caret { font-size: 12px; }
 .bf-filter-count { margin-top: -2px; }
 
+/* ---------- batch E3: notes, one-line entries, action sheets, History icon ---------- */
+.bf-note {
+  border: 2.5px solid var(--bf-ink); border-radius: 16px;
+  box-shadow: 3px 3px 0 var(--bf-ink); overflow: hidden;
+  background: var(--bf-card);
+}
+.bf-note-head {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 42px; padding: 0 12px; margin: 0; border: 0;
+  font-family: var(--bf-font-head); font-size: 16px; font-weight: 700; color: var(--bf-ink);
+  text-align: left; cursor: pointer; background: var(--bf-ice);
+}
+.bf-note-ice .bf-note-head { background: var(--bf-ice); }
+.bf-note-frost .bf-note-head { background: var(--bf-ice2); }
+.bf-note-gold .bf-note-head { background: var(--bf-goldsoft); }
+.bf-note-peach .bf-note-head { background: var(--bf-peach); }
+.bf-note-head:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: -3px; }
+.bf-note-title { flex: 1 1 auto; }
+.bf-note-count { font-family: var(--bf-font); font-size: 13px; font-weight: 800; color: var(--bf-muted); }
+.bf-note-caret { font-size: 13px; width: 14px; text-align: center; }
+.bf-note:not(.is-folded) .bf-note-head { border-bottom: 2px solid var(--bf-ink); }
+.bf-note-body { padding: 2px 12px; }
+.bf-line {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 40px; padding: 4px 0; margin: 0;
+  border: 0; border-top: 1.5px dashed var(--bf-line); background: transparent; color: var(--bf-ink);
+  font-family: var(--bf-font); text-align: left; cursor: pointer;
+}
+.bf-note-body > .bf-line:first-child { border-top: 0; }
+.bf-line:focus-visible, .bf-line-main:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 1px; border-radius: 6px; }
+.bf-line-name { flex: 1 1 auto; min-width: 0; font-weight: 800; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bf-line-bits { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; max-width: 60%; overflow: hidden; }
+.bf-line-bits .bf-tag { height: 18px; padding: 0 6px; font-size: 9.5px; flex: 0 0 auto; }
+.bf-line-count { font-weight: 900; font-size: 13px; color: var(--bf-ink); }
+.bf-line-when { font-weight: 700; font-size: 12px; color: var(--bf-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bf-line-dish { cursor: default; gap: 2px; }
+.bf-line-star { width: 32px; min-width: 32px; height: 34px; font-size: 20px; }
+.bf-line-main {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px;
+  min-height: 34px; padding: 0; margin: 0; border: 0; background: transparent; color: var(--bf-ink);
+  font-family: var(--bf-font); text-align: left; cursor: pointer;
+}
+.bf-hist-icon { padding: 0; }
+.bf-hist-icon svg { width: 22px; height: 22px; }
+.bf-act-meta { margin-top: -4px; margin-bottom: 10px; }
+.bf-act-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.bf-act-main { min-height: 48px; font-size: 17px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -713,7 +761,7 @@ select.bf-field {
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v12';
+var BF_VERSION = 'bf-v13';
 
 var BF = {
   sb: null,
@@ -4945,6 +4993,329 @@ BF.renderPlay = function () {
       ? 'Only one here: ' + all[0].label + '. Change the filter to add more.'
       : (w.readyOnly ? 'Nothing ready to heat here.' : 'Nothing here yet.') + ' Change the filter, or add food on the Fridge tab.';
   }
+};
+
+/* ===================== batch E3: one-slice wheel, Fridge + Library as notes, tap-for-actions, History icon ===================== */
+
+/* ---------- wheel: a single option is a full circle; no pointer on an empty wheel ---------- */
+var _bfDrawWheelD = BF.drawWheel;
+BF.drawWheel = function (svgEl, opts) {
+  if (opts.length !== 1) return _bfDrawWheelD.apply(this, arguments);
+  svgEl.replaceChildren();
+  var disc = BF.svg('circle', { cx: '150', cy: '150', r: '140', stroke: 'var(--bf-ink)', 'stroke-width': '4' });
+  disc.style.fill = 'var(--bf-ice)';
+  svgEl.appendChild(disc);
+  var label = opts[0].label.length > 16 ? opts[0].label.slice(0, 15) + '\u2026' : opts[0].label;
+  var t = BF.svg('text', { x: '150', y: '84', 'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-size': '19', 'class': 'bf-wheel-label' });
+  t.textContent = label;
+  svgEl.appendChild(t);
+  var hub = BF.svg('circle', { cx: '150', cy: '150', r: '16', stroke: 'var(--bf-ink)', 'stroke-width': '3' });
+  hub.style.fill = 'var(--bf-gold)';
+  svgEl.appendChild(hub);
+};
+
+var _bfRenderPlayE2b = BF.renderPlay;
+BF.renderPlay = function () {
+  _bfRenderPlayE2b.apply(this, arguments);
+  var ui = BF.playUI;
+  var w = BF.wheel;
+  if (!ui || w.spinning) return;
+  if (w.shown.length === 1) {
+    ui.empty.hidden = true;
+    BF.drawWheel(ui.svg, w.shown);
+    ui.note.textContent = '';
+    ui.spinBtn.disabled = false;
+  }
+  var ptr = ui.svg.parentNode && ui.svg.parentNode.querySelector('.bf-wheel-pointer');
+  if (ptr) ptr.hidden = !ui.empty.hidden;
+};
+
+/* Same as batch D's spin, but a one-slice wheel can spin too. */
+BF.spin = function () {
+  var w = BF.wheel;
+  var ui = BF.playUI;
+  if (!ui || w.spinning) return;
+  BF.refreshShown();
+  var n = w.shown.length;
+  if (n < 1) return;
+  var i = BF.randInt(n);
+  var a = 360 / n;
+  var jitter = (BF.randInt(1000) / 1000 - 0.5) * a * 0.7;
+  var target = 360 - (i * a + a / 2) + jitter;
+  var cur = ((w.rot % 360) + 360) % 360;
+  var delta = ((target - cur) % 360 + 360) % 360;
+  w.rot = w.rot + 360 * 5 + delta;
+  w.result = null;
+  w.spinning = true;
+  BF.renderResult();
+  ui.spinBtn.disabled = true;
+  ui.srcBtns.forEach(function (b) { b.disabled = true; });
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var done = false;
+  var finish = function () {
+    if (done) return;
+    done = true;
+    ui.svg.classList.remove('is-spinning');
+    w.spinning = false;
+    w.result = w.shown[i];
+    BF.renderPlay();
+    ui.result.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+  };
+  if (reduce) {
+    ui.svg.style.transform = 'rotate(' + w.rot + 'deg)';
+    finish();
+    return;
+  }
+  ui.svg.classList.add('is-spinning');
+  void ui.svg.getBoundingClientRect();
+  ui.svg.style.transform = 'rotate(' + w.rot + 'deg)';
+  ui.svg.addEventListener('transitionend', finish, { once: true });
+  setTimeout(finish, 4000);
+};
+
+/* ---------- notes: folding (remembered per phone) ---------- */
+BF._folds = {};
+try { (JSON.parse(localStorage.getItem('bf-folds') || '[]') || []).forEach(function (k) { BF._folds[k] = true; }); } catch (e) { /* ignore */ }
+BF.isFolded = function (key) { return !!BF._folds[key]; };
+BF.toggleFold = function (key) {
+  if (BF._folds[key]) delete BF._folds[key]; else BF._folds[key] = true;
+  try { localStorage.setItem('bf-folds', JSON.stringify(Object.keys(BF._folds))); } catch (e) { /* ignore */ }
+};
+
+/* A sticky note: header (title + how many, taps to fold) and one line per entry. */
+BF.note = function (key, title, lines, tone, forceOpen) {
+  var folded = !forceOpen && BF.isFolded(key);
+  var note = BF.el('section', 'bf-note bf-note-' + tone + (folded ? ' is-folded' : ''));
+  var head = BF.el('button', 'bf-note-head');
+  head.type = 'button';
+  head.setAttribute('aria-expanded', folded ? 'false' : 'true');
+  head.appendChild(BF.el('span', 'bf-note-title', title));
+  head.appendChild(BF.el('span', 'bf-note-count', String(lines.length)));
+  head.appendChild(BF.el('span', 'bf-note-caret', folded ? '\u25B8' : '\u25BE'));
+  head.addEventListener('click', function () {
+    BF.toggleFold(key);
+    if (key.indexOf('lib:') === 0) BF.renderLibrary(); else BF.renderFridge();
+  });
+  note.appendChild(head);
+  if (!folded) {
+    var body = BF.el('div', 'bf-note-body');
+    lines.forEach(function (l) { body.appendChild(l); });
+    note.appendChild(body);
+  }
+  return note;
+};
+
+BF.historyIcon = function () {
+  var b = BF.button('', 'bf-square bf-hist-icon', BF.openHistory, 'History: what was eaten, deleted or bought');
+  var s = BF.svg('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2.3', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' });
+  s.appendChild(BF.svg('path', { d: 'M3 12a9 9 0 1 0 3-6.7' }));
+  s.appendChild(BF.svg('path', { d: 'M3 4v4h4' }));
+  s.appendChild(BF.svg('path', { d: 'M12 7v5l3 2' }));
+  b.appendChild(s);
+  return b;
+};
+
+/* Replace a tab's History link row with an icon in its toolbar. */
+BF.historyToToolbar = function (body) {
+  var bar = body.querySelector('.bf-toolbar');
+  var row = body.querySelector('.bf-linkrow');
+  if (!bar) return;
+  if (row) row.remove();
+  bar.appendChild(BF.historyIcon());
+};
+
+/* ---------- Fridge tab ---------- */
+BF.NOTE_TONE = { fridge: 'ice', freezer: 'frost', storage: 'gold', ready: 'ice', home: 'gold', takeout: 'peach' };
+
+/* Eat-soon first: leftovers and anything going off within 3 days, soonest first; then as before. */
+BF.soonRank = function (it) {
+  var d = BF.daysUntil(it.expiry);
+  if (d !== null && d <= 3) return d;
+  if (it.leftover) return 4;
+  return 99;
+};
+
+BF.itemLine = function (it) {
+  var name = String(it.name == null ? '' : it.name);
+  var line = BF.el('button', 'bf-line');
+  line.type = 'button';
+  line.appendChild(BF.el('span', 'bf-line-name', name));
+  var bits = BF.el('span', 'bf-line-bits');
+  if (it.count != null) bits.appendChild(BF.el('span', 'bf-line-count', '\u00D7' + it.count));
+  var d = BF.daysUntil(it.expiry);
+  if (d !== null && d <= 1) bits.appendChild(BF.el('span', 'bf-tag bf-tag-soon', BF.expiryText(it.expiry) || 'Eat soon'));
+  else if (d !== null && d <= 3) bits.appendChild(BF.el('span', 'bf-line-when', BF.expiryText(it.expiry)));
+  if (it.leftover) bits.appendChild(BF.el('span', 'bf-tag bf-tag-leftover', 'Leftover'));
+  if (it.ready || BF.dishIsReady(it)) bits.appendChild(BF.el('span', 'bf-tag bf-tag-ready', 'Ready'));
+  line.appendChild(bits);
+  line.setAttribute('aria-label', name + (it.count != null ? ', ' + it.count : '') + '. Actions');
+  line.addEventListener('click', function () { BF.openItemActions(it.id); });
+  return line;
+};
+
+BF.renderFridge = function () {
+  var ui = BF.fridgeUI || BF.buildFridgeUI();
+  var list = ui.list;
+  list.replaceChildren();
+  if (!BF.data.loaded) return;
+  var items = BF.data.items;
+  if (!items.length) {
+    list.appendChild(BF.emptyCard('The fridge is empty. Add something, or paste a list with Bulk.'));
+    return;
+  }
+  var needle = ui.search.value.trim().toLowerCase();
+  var shown = needle ? items.filter(function (i) {
+    return String(i.name == null ? '' : i.name).toLowerCase().indexOf(needle) >= 0;
+  }) : items;
+  if (!shown.length) {
+    list.appendChild(BF.emptyCard('Nothing matches.'));
+    return;
+  }
+  var known = BF.LOCATIONS.map(function (l) { return l[0]; });
+  BF.LOCATIONS.forEach(function (loc) {
+    var rows = shown.filter(function (i) {
+      return (known.indexOf(i.location) >= 0 ? i.location : 'fridge') === loc[0];
+    });
+    if (!rows.length) return;
+    var order = rows.map(function (it, idx) { return { it: it, idx: idx, r: BF.soonRank(it) }; });
+    order.sort(function (a, b) { return a.r - b.r || a.idx - b.idx; });
+    var lines = order.map(function (o) { return BF.itemLine(o.it); });
+    list.appendChild(BF.note('fridge:' + loc[0], loc[1], lines, BF.NOTE_TONE[loc[0]], !!needle));
+  });
+};
+
+var _bfBuildFridgeE = BF.buildFridgeUI;
+BF.buildFridgeUI = function () {
+  var ui = _bfBuildFridgeE.apply(this, arguments);
+  BF.historyToToolbar(BF.$('bf-tab-fridge-body'));
+  return ui;
+};
+
+/* Tap an item: Ate it first, then Running low, Edit, Delete. */
+BF.openItemActions = function (id) {
+  var it = BF.findItem(id);
+  if (!it) return;
+  var name = String(it.name == null ? '' : it.name);
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', name));
+    var meta = [BF.locLabel(it.location)];
+    if (it.count != null) meta.push('\u00D7' + it.count);
+    var ex = BF.expiryText(it.expiry);
+    if (ex) meta.push('goes off ' + ex);
+    box.appendChild(BF.el('p', 'bf-hint bf-act-meta', meta.join(' \u00B7 ')));
+    var acts = BF.el('div', 'bf-act-list');
+    acts.appendChild(BF.button('Ate it', 'bf-btn-primary bf-btn-wide bf-act-main', function () { BF.closeSheet(); BF.ateIt(id); }));
+    var row = BF.el('div', 'bf-sheet-acts');
+    row.appendChild(BF.button('Running low', '', function () { BF.closeSheet(); BF.runningLow(name); }));
+    row.appendChild(BF.button('Edit', '', function () { BF.openItemSheet(id); }));
+    row.appendChild(BF.button('Delete', 'bf-btn-ghost', function () { BF.closeSheet(); BF.deleteItem(id); }));
+    acts.appendChild(row);
+    box.appendChild(acts);
+  });
+};
+
+/* ---------- Library tab ---------- */
+BF.dishLine = function (d) {
+  var name = String(d.name == null ? '' : d.name);
+  var line = BF.el('div', 'bf-line bf-line-dish');
+  var star = BF.el('button', 'bf-star bf-line-star' + (d.favourite ? ' is-on' : ''), d.favourite ? '\u2605' : '\u2606');
+  star.type = 'button';
+  star.setAttribute('aria-pressed', d.favourite ? 'true' : 'false');
+  star.setAttribute('aria-label', 'Favourite: ' + name);
+  star.addEventListener('click', function () { BF.toggleFav(d.id); });
+  line.appendChild(star);
+  var nb = BF.el('button', 'bf-line-main');
+  nb.type = 'button';
+  nb.setAttribute('aria-label', name + '. Actions');
+  nb.appendChild(BF.el('span', 'bf-line-name', name));
+  var bits = BF.el('span', 'bf-line-bits');
+  var had = BF.hadText(d);
+  if (had) bits.appendChild(BF.el('span', 'bf-line-when', had));
+  if (BF.inHouse(d).length) bits.appendChild(BF.el('span', 'bf-tag bf-tag-ready', 'In house'));
+  nb.appendChild(bits);
+  nb.addEventListener('click', function () { BF.openDishActions(d.id); });
+  line.appendChild(nb);
+  return line;
+};
+
+BF.renderLibrary = function () {
+  var ui = BF.libUI || BF.buildLibraryUI();
+  ui.fbtns.forEach(function (b) {
+    var on = b._val === BF._libFilter;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  var list = ui.list;
+  list.replaceChildren();
+  if (!BF.lib.loaded) {
+    if (BF.lib.error) list.appendChild(BF.emptyCard('Couldn\'t load the library. Reopen the app to retry.'));
+    return;
+  }
+  var all = BF.lib.dishes.slice().sort(BF.byName);
+  if (!all.length) {
+    list.appendChild(BF.emptyCard('No dishes yet. Add one with +, or Paste a list.'));
+    return;
+  }
+  var f = BF._libFilter;
+  var shown = all.filter(function (d) {
+    if (f === 'fav') return !!d.favourite;
+    if (f === 'while') return BF.haventHad(d);
+    if (f === 'ready' || f === 'home' || f === 'takeout') return d.kind === f;
+    return true;
+  });
+  var needle = ui.search.value.trim().toLowerCase();
+  if (needle) shown = shown.filter(function (d) { return String(d.name == null ? '' : d.name).toLowerCase().indexOf(needle) >= 0; });
+  if (!shown.length) {
+    var msg = needle ? 'Nothing matches.'
+      : f === 'fav' ? 'No favourites yet. Tap the star on a dish.'
+      : f === 'while' ? 'Nothing here \u2013 you\'ve had everything lately.'
+      : 'No dishes of this kind yet.';
+    list.appendChild(BF.emptyCard(msg));
+    return;
+  }
+  BF.KINDS.forEach(function (k) {
+    var rows = shown.filter(function (d) { return (d.kind || 'home') === k[0]; });
+    if (!rows.length) return;
+    list.appendChild(BF.note('lib:' + k[0], k[1], rows.map(BF.dishLine), BF.NOTE_TONE[k[0]], !!needle));
+  });
+  var other = shown.filter(function (d) { return !BF.KINDS.some(function (k) { return k[0] === (d.kind || 'home'); }); });
+  if (other.length) list.appendChild(BF.note('lib:other', 'Other', other.map(BF.dishLine), 'ice', !!needle));
+};
+
+var _bfBuildLibraryE = BF.buildLibraryUI;
+BF.buildLibraryUI = function () {
+  var ui = _bfBuildLibraryE.apply(this, arguments);
+  BF.historyToToolbar(BF.$('bf-tab-library-body'));
+  return ui;
+};
+
+/* Tap a dish: We ate this first, then Edit, Delete. */
+BF.openDishActions = function (id) {
+  var d = BF.findDish(id);
+  if (!d) return;
+  var name = String(d.name == null ? '' : d.name);
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', name));
+    var meta = [BF.kindLabel(d.kind) || 'Dish'];
+    var had = BF.hadText(d);
+    if (had) meta.push(had);
+    var n = BF.inHouse(d).length;
+    if (n) meta.push('in the house');
+    box.appendChild(BF.el('p', 'bf-hint bf-act-meta', meta.join(' \u00B7 ')));
+    var ings = BF.ingredientsOf(d);
+    if (ings.length) {
+      var tags = BF.el('div', 'bf-tags');
+      ings.forEach(function (x) { tags.appendChild(BF.el('span', 'bf-tag bf-tag-ing', x)); });
+      box.appendChild(tags);
+    }
+    var acts = BF.el('div', 'bf-act-list');
+    acts.appendChild(BF.button('We ate this', 'bf-btn-primary bf-btn-wide bf-act-main', function () { BF.closeSheet(); BF.weAteThis(id); }));
+    var row = BF.el('div', 'bf-sheet-acts');
+    row.appendChild(BF.button('Edit', '', function () { BF.openDishSheet(id); }));
+    row.appendChild(BF.button('Delete', 'bf-btn-ghost', function () { BF.closeSheet(); BF.deleteDish(id); }));
+    acts.appendChild(row);
+    box.appendChild(acts);
+  });
 };
 
 BF.init();
