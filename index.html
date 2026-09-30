@@ -483,6 +483,43 @@ select.bf-field {
 .bf-bubble { font-size: 15px; }
 .bf-soon { font-size: 15px; }
 
+/* ---------- batch D: one-line pill rows + spin the wheel ---------- */
+.bf-pills-line {
+  flex-wrap: nowrap; gap: 4px; overflow-x: auto;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  margin: 0 -14px; padding: 2px 14px 4px;
+}
+.bf-pills-line::-webkit-scrollbar { display: none; }
+.bf-pills-line .bf-pill { flex: 0 0 auto; min-width: 34px; min-height: 34px; padding: 0 6px; font-size: 12.5px; white-space: nowrap; }
+.bf-spin-card { display: flex; flex-direction: column; gap: 12px; }
+.bf-spin-title { font-size: 20px; }
+.bf-wheel-wrap { position: relative; width: 100%; max-width: 300px; margin: 6px auto 0; aspect-ratio: 1 / 1; overflow: hidden; }
+.bf-wheel { display: block; width: 100%; height: 100%; transform: rotate(0deg); pointer-events: none; }
+.bf-wheel.is-spinning { transition: transform 3.6s cubic-bezier(.15, .7, .12, 1); }
+.bf-wheel-pointer {
+  position: absolute; left: 50%; top: 0; z-index: 2;
+  width: 0; height: 0; margin-left: -13px;
+  border-left: 13px solid transparent; border-right: 13px solid transparent;
+  border-top: 24px solid var(--bf-ink);
+}
+.bf-wheel-pointer::after {
+  content: ""; position: absolute; left: -8px; top: -21px;
+  border-left: 8px solid transparent; border-right: 8px solid transparent;
+  border-top: 15px solid var(--bf-gold);
+}
+.bf-wheel-label { font-family: var(--bf-font); font-weight: 800; fill: var(--bf-ink); }
+.bf-wheel-empty {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  text-align: center; padding: 40px; font-weight: 800; color: var(--bf-muted);
+}
+.bf-spin-note { text-align: center; }
+.bf-result-pick { text-align: center; background: var(--bf-goldsoft); }
+.bf-result-kicker { margin: 0; font-weight: 800; font-size: 13px; color: var(--bf-muted); text-transform: uppercase; letter-spacing: .06em; }
+.bf-result-name { margin: 4px 0 12px; font-family: var(--bf-font-head); font-size: 26px; font-weight: 700; overflow-wrap: anywhere; }
+.bf-list-save { display: flex; gap: 8px; }
+.bf-list-save .bf-field { flex: 1 1 auto; min-width: 0; }
+.bf-list-save .bf-btn { flex: 0 0 auto; white-space: nowrap; min-height: 44px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -557,7 +594,6 @@ select.bf-field {
     </section>
 
     <section id="bf-tab-play" class="bf-panel" aria-labelledby="bf-nav-play" hidden>
-      <div id="bf-tab-play-soon" class="bf-card"><p class="bf-soon">Spin, swipe, vote &mdash; coming soon.</p></div>
       <div id="bf-tab-play-body"></div>
     </section>
   </main>
@@ -620,7 +656,7 @@ select.bf-field {
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v8';
+var BF_VERSION = 'bf-v9';
 
 var BF = {
   sb: null,
@@ -3773,6 +3809,397 @@ BF.dishIsReady = function (it) {
     return !!d && d.kind === 'ready';
   }
   return BF.lib.dishes.some(function (x) { return x.kind === 'ready' && BF.sameName(x.name, it.name); });
+};
+
+/* ===================== batch D: spin the wheel (+ one-line library filters) ===================== */
+
+/* ---------- Library filters: one line, shorter label ---------- */
+BF.LIB_FILTERS = [['all', 'All'], ['fav', '\u2605'], ['while', 'Not lately'], ['ready', 'Ready'], ['home', 'Home'], ['takeout', 'Takeout']];
+var _bfBuildLibraryD = BF.buildLibraryUI;
+BF.buildLibraryUI = function () {
+  var ui = _bfBuildLibraryD.apply(this, arguments);
+  if (ui.fbtns.length) ui.fbtns[0].parentNode.classList.add('bf-pills-line');
+  ui.fbtns.forEach(function (b) { if (b._val === 'while') b.setAttribute('aria-label', 'Haven\'t had in a while'); });
+  return ui;
+};
+
+/* ---------- state ---------- */
+BF.WHEEL_MAX = 12;
+BF.WHEEL_SOURCES = [['fridge', 'Fridge'], ['library', 'Library'], ['custom', 'Custom']];
+BF.WHEEL_COLORS = ['var(--bf-ice)', 'var(--bf-goldsoft)', 'var(--bf-peach)', 'var(--bf-card)'];
+BF.wheel = {
+  source: 'library', favOnly: false, takeout: true,
+  customText: '', listId: null,
+  shown: [], sig: '', rot: 0, spinning: false, result: null
+};
+BF.lib.lists = [];
+BF._listSeq = 0;
+
+BF.loadLists = async function () {
+  if (!BF.sb) return;
+  var seq = ++BF._listSeq;
+  var rows;
+  try { rows = await BF.fetchAll('bf_wheel_lists'); } catch (e) { console.warn('wheel lists load failed', e); return; }
+  if (seq !== BF._listSeq) return;
+  BF.lib.lists = (rows || []).slice().sort(BF.byName);
+  if (BF.wheel.listId != null && !BF.lib.lists.some(function (l) { return String(l.id) === String(BF.wheel.listId); })) BF.wheel.listId = null;
+};
+
+var _bfLoadDataD = BF.loadData;
+BF.loadData = function () {
+  return Promise.all([_bfLoadDataD.apply(this, arguments), BF.loadLists()]).then(function () {
+    BF.renderPlay();
+  });
+};
+
+BF.randInt = function (n) {
+  try {
+    var a = new Uint32Array(1);
+    crypto.getRandomValues(a);
+    return a[0] % n;
+  } catch (e) {
+    return Math.floor(Math.random() * n);
+  }
+};
+
+/* All options for the current source: [{ label, kind: 'item'|'dish'|'custom', id }] */
+BF.wheelOptions = function () {
+  var w = BF.wheel;
+  var out = [];
+  var add = function (o) {
+    if (!o.label || out.some(function (x) { return BF.sameName(x.label, o.label); })) return;
+    out.push(o);
+  };
+  if (w.source === 'fridge') {
+    BF.data.items.forEach(function (it) {
+      if (it.ready || BF.dishIsReady(it)) add({ label: String(it.name == null ? '' : it.name).trim(), kind: 'item', id: it.id });
+    });
+  } else if (w.source === 'library') {
+    BF.lib.dishes.slice().sort(BF.byName).forEach(function (d) {
+      if (w.favOnly && !d.favourite) return;
+      if (!w.takeout && d.kind === 'takeout') return;
+      add({ label: String(d.name == null ? '' : d.name).trim(), kind: 'dish', id: d.id });
+    });
+  } else {
+    BF.uniqueLines(w.customText).forEach(function (n) { add({ label: n, kind: 'custom', id: null }); });
+  }
+  return out;
+};
+
+/* Keep the slices stable until the options change; more than WHEEL_MAX -> a random WHEEL_MAX. */
+BF.refreshShown = function () {
+  var all = BF.wheelOptions();
+  var sig = BF.wheel.source + '|' + all.map(function (o) { return o.kind + ':' + o.label; }).join('\n');
+  if (sig === BF.wheel.sig) return all.length;
+  BF.wheel.sig = sig;
+  var pool = all.slice();
+  var pick = [];
+  while (pool.length && pick.length < BF.WHEEL_MAX) pick.push(pool.splice(BF.randInt(pool.length), 1)[0]);
+  if (all.length <= BF.WHEEL_MAX) pick = all.slice();
+  BF.wheel.shown = pick;
+  return all.length;
+};
+
+/* ---------- wheel drawing (SVG, no innerHTML) ---------- */
+BF.svg = function (tag, attrs) {
+  var e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); });
+  return e;
+};
+
+BF.drawWheel = function (svgEl, opts) {
+  svgEl.replaceChildren();
+  var n = opts.length;
+  if (n < 2) return;
+  var c = 150;
+  var r = 140;
+  var a = 360 / n;
+  var pt = function (deg, rad) {
+    var t = deg * Math.PI / 180;
+    return (c + rad * Math.sin(t)).toFixed(2) + ' ' + (c - rad * Math.cos(t)).toFixed(2);
+  };
+  var fs = n <= 4 ? 17 : n <= 6 ? 15 : n <= 9 ? 13 : 11;
+  var maxChars = n <= 4 ? 13 : n <= 8 ? 12 : 11;
+  opts.forEach(function (o, i) {
+    var s = i * a;
+    var e = s + a;
+    var color = BF.WHEEL_COLORS[i % BF.WHEEL_COLORS.length];
+    if (i === n - 1 && i % BF.WHEEL_COLORS.length === 0 && n > 1) color = 'var(--bf-ice2)';
+    var path = BF.svg('path', {
+      d: 'M ' + c + ' ' + c + ' L ' + pt(s, r) + ' A ' + r + ' ' + r + ' 0 ' + (a > 180 ? 1 : 0) + ' 1 ' + pt(e, r) + ' Z',
+      stroke: 'var(--bf-ink)', 'stroke-width': '2.5', 'stroke-linejoin': 'round'
+    });
+    path.style.fill = color;
+    svgEl.appendChild(path);
+    var mid = s + a / 2;
+    var label = o.label.length > maxChars ? o.label.slice(0, maxChars - 1) + '\u2026' : o.label;
+    var flip = mid > 180;
+    var p = pt(mid, r * 0.6).split(' ');
+    var t = BF.svg('text', {
+      x: p[0], y: p[1],
+      'text-anchor': 'middle', 'dominant-baseline': 'middle',
+      'font-size': String(fs), 'class': 'bf-wheel-label',
+      transform: 'rotate(' + (mid - 90 + (flip ? 180 : 0)).toFixed(2) + ' ' + p[0] + ' ' + p[1] + ')'
+    });
+    t.textContent = label;
+    svgEl.appendChild(t);
+  });
+  svgEl.appendChild(BF.svg('circle', { cx: String(c), cy: String(c), r: String(r), fill: 'none', stroke: 'var(--bf-ink)', 'stroke-width': '4' }));
+  var hub = BF.svg('circle', { cx: String(c), cy: String(c), r: '16', stroke: 'var(--bf-ink)', 'stroke-width': '3' });
+  hub.style.fill = 'var(--bf-gold)';
+  svgEl.appendChild(hub);
+};
+
+/* ---------- Play tab ---------- */
+BF.buildPlayUI = function () {
+  var soon = BF.$('bf-tab-play-soon');
+  if (soon) soon.remove();
+  var body = BF.$('bf-tab-play-body');
+  body.classList.add('bf-stack');
+  var card = BF.el('section', 'bf-card bf-spin-card');
+  card.appendChild(BF.el('h2', 'bf-spin-title', 'Spin the wheel'));
+
+  var srcRow = BF.el('div', 'bf-pills bf-pills-line');
+  srcRow.setAttribute('role', 'group');
+  srcRow.setAttribute('aria-label', 'Spin from');
+  var srcBtns = BF.WHEEL_SOURCES.map(function (s) {
+    var b = BF.el('button', 'bf-pill', s[1]);
+    b.type = 'button';
+    b._val = s[0];
+    b.addEventListener('click', function () {
+      if (BF.wheel.spinning) return;
+      BF.wheel.source = s[0];
+      BF.wheel.result = null;
+      BF.renderPlay();
+    });
+    srcRow.appendChild(b);
+    return b;
+  });
+  card.appendChild(srcRow);
+
+  // Library options
+  var libOpts = BF.el('div', 'bf-pills');
+  libOpts.appendChild(BF.togglePill('\u2605 Only', function () { return BF.wheel.favOnly; }, function (v) { BF.wheel.favOnly = v; BF.wheel.result = null; BF.renderPlay(); }));
+  libOpts.appendChild(BF.togglePill('Takeout', function () { return BF.wheel.takeout; }, function (v) { BF.wheel.takeout = v; BF.wheel.result = null; BF.renderPlay(); }));
+  card.appendChild(libOpts);
+
+  // Custom options
+  var custom = BF.el('div', 'bf-form');
+  var lists = BF.el('div', 'bf-pills bf-pills-line');
+  lists.setAttribute('role', 'group');
+  lists.setAttribute('aria-label', 'Saved lists');
+  custom.appendChild(lists);
+  var ta = BF.input({ tag: 'textarea', placeholder: 'One option per line\nNoodle shop\nPizza\n\u1011\u1019\u1004\u103a\u1038\u1006\u102d\u102f\u1004\u103a' });
+  ta.rows = 4;
+  ta.addEventListener('input', function () {
+    BF.wheel.customText = ta.value;
+    BF.wheel.result = null;
+    BF.renderPlay();
+  });
+  custom.appendChild(BF.labelled('Custom options, one per line', ta, true));
+  var saveRow = BF.el('div', 'bf-list-save');
+  var nameIn = BF.input({ placeholder: 'List name, e.g. Takeout near us' });
+  saveRow.appendChild(BF.labelled('List name', nameIn, true));
+  saveRow.lastChild.style.flex = '1 1 auto';
+  saveRow.lastChild.style.minWidth = '0';
+  var saveBtn = BF.button('Save list', 'bf-btn-sm', function () { BF.saveWheelList(); });
+  saveRow.appendChild(saveBtn);
+  custom.appendChild(saveRow);
+  var delBtn = BF.button('Delete this list', 'bf-btn-ghost bf-btn-sm', function () { BF.deleteWheelList(BF.wheel.listId); });
+  delBtn.style.alignSelf = 'flex-start';
+  custom.appendChild(delBtn);
+  card.appendChild(custom);
+
+  var note = BF.el('p', 'bf-hint bf-spin-note');
+  note.setAttribute('role', 'status');
+  card.appendChild(note);
+
+  var wrap = BF.el('div', 'bf-wheel-wrap');
+  wrap.appendChild(BF.el('div', 'bf-wheel-pointer'));
+  var svgEl = BF.svg('svg', { viewBox: '0 0 300 300', 'class': 'bf-wheel', role: 'img', 'aria-label': 'Wheel' });
+  wrap.appendChild(svgEl);
+  var empty = BF.el('div', 'bf-wheel-empty');
+  wrap.appendChild(empty);
+  card.appendChild(wrap);
+
+  var spinBtn = BF.button('Spin!', 'bf-btn-gold bf-btn-wide', function () { BF.spin(); });
+  card.appendChild(spinBtn);
+
+  var result = BF.el('div', 'bf-card bf-result-pick');
+  result.hidden = true;
+  result.setAttribute('aria-live', 'polite');
+
+  body.appendChild(card);
+  body.appendChild(result);
+  BF.playUI = {
+    srcBtns: srcBtns, libOpts: libOpts, custom: custom, lists: lists, ta: ta, nameIn: nameIn,
+    saveBtn: saveBtn, delBtn: delBtn, note: note, svg: svgEl, empty: empty, spinBtn: spinBtn, result: result
+  };
+  return BF.playUI;
+};
+
+BF.renderPlay = function () {
+  var ui = BF.playUI || BF.buildPlayUI();
+  var w = BF.wheel;
+  ui.srcBtns.forEach(function (b) {
+    var on = b._val === w.source;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.disabled = w.spinning;
+  });
+  ui.libOpts.hidden = w.source !== 'library';
+  ui.custom.hidden = w.source !== 'custom';
+
+  // saved lists
+  ui.lists.replaceChildren();
+  BF.lib.lists.forEach(function (l) {
+    var on = String(l.id) === String(w.listId);
+    var b = BF.el('button', 'bf-pill' + (on ? ' is-on' : ''), String(l.name == null ? '' : l.name));
+    b.type = 'button';
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.addEventListener('click', function () { BF.loadWheelList(l.id); });
+    ui.lists.appendChild(b);
+  });
+  ui.lists.hidden = !BF.lib.lists.length;
+  ui.delBtn.hidden = w.listId == null;
+  if (ui.ta.value !== w.customText) ui.ta.value = w.customText;
+
+  if (w.spinning) return;
+  var total = BF.refreshShown();
+  var n = w.shown.length;
+  if (n < 2) {
+    ui.svg.replaceChildren();
+    ui.empty.hidden = false;
+    ui.empty.textContent = w.source === 'fridge'
+      ? 'Nothing ready to heat. Mark food Ready to heat, or link it to a Ready dish.'
+      : w.source === 'library' ? 'Need at least 2 dishes here. Add some in the Library.'
+      : 'Type at least 2 options, one per line.';
+    ui.note.textContent = '';
+    ui.spinBtn.disabled = true;
+  } else {
+    ui.empty.hidden = true;
+    BF.drawWheel(ui.svg, w.shown);
+    ui.note.textContent = total > n ? n + ' picked at random from ' + total : '';
+    ui.spinBtn.disabled = false;
+  }
+  BF.renderResult();
+};
+
+BF.renderResult = function () {
+  var ui = BF.playUI;
+  if (!ui) return;
+  var r = BF.wheel.result;
+  ui.result.replaceChildren();
+  ui.result.hidden = !r;
+  if (!r) return;
+  ui.result.appendChild(BF.el('p', 'bf-result-kicker', 'The Boss picks'));
+  ui.result.appendChild(BF.el('p', 'bf-result-name', r.label));
+  var acts = BF.el('div', 'bf-sheet-acts');
+  var dish = r.kind === 'dish' ? BF.findDish(r.id) : (r.kind === 'custom' ? BF.dishByName(r.label) : null);
+  var item = r.kind === 'item' ? BF.findItem(r.id) : null;
+  if (item || dish) {
+    acts.appendChild(BF.button('Let\'s eat it', 'bf-btn-primary', function () {
+      if (item) BF.openItemSheet(item.id);
+      else BF.openDishSheet(dish.id);
+    }));
+  }
+  acts.appendChild(BF.button('Spin again', '', function () { BF.spin(); }));
+  ui.result.appendChild(acts);
+};
+
+BF.spin = function () {
+  var w = BF.wheel;
+  var ui = BF.playUI;
+  if (!ui || w.spinning) return;
+  BF.refreshShown();
+  var n = w.shown.length;
+  if (n < 2) return;
+  var i = BF.randInt(n);
+  var a = 360 / n;
+  var jitter = (BF.randInt(1000) / 1000 - 0.5) * a * 0.7;
+  var target = 360 - (i * a + a / 2) + jitter;          // slice i under the pointer
+  var cur = ((w.rot % 360) + 360) % 360;
+  var delta = ((target - cur) % 360 + 360) % 360;
+  w.rot = w.rot + 360 * 5 + delta;
+  w.result = null;
+  w.spinning = true;
+  BF.renderResult();
+  ui.spinBtn.disabled = true;
+  ui.srcBtns.forEach(function (b) { b.disabled = true; });
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var done = false;
+  var finish = function () {
+    if (done) return;
+    done = true;
+    ui.svg.classList.remove('is-spinning');
+    w.spinning = false;
+    w.result = w.shown[i];
+    BF.renderPlay();
+    ui.result.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+  };
+  if (reduce) {
+    ui.svg.style.transform = 'rotate(' + w.rot + 'deg)';
+    finish();
+    return;
+  }
+  ui.svg.classList.add('is-spinning');
+  void ui.svg.getBoundingClientRect();
+  ui.svg.style.transform = 'rotate(' + w.rot + 'deg)';
+  ui.svg.addEventListener('transitionend', finish, { once: true });
+  setTimeout(finish, 4000);
+};
+
+/* ---------- saved custom lists ---------- */
+BF.loadWheelList = function (id) {
+  if (BF.wheel.spinning) return;
+  var l = BF.lib.lists.filter(function (x) { return String(x.id) === String(id); })[0];
+  if (!l) return;
+  BF.wheel.listId = l.id;
+  BF.wheel.customText = (Array.isArray(l.options) ? l.options : []).join('\n');
+  BF.wheel.result = null;
+  if (BF.playUI) BF.playUI.nameIn.value = String(l.name == null ? '' : l.name);
+  BF.renderPlay();
+};
+
+BF.saveWheelList = async function () {
+  var ui = BF.playUI;
+  var name = ui.nameIn.value.trim();
+  var options = BF.uniqueLines(BF.wheel.customText);
+  if (!name) { BF.shake(ui.nameIn); ui.nameIn.focus(); BF.toast('Give the list a name'); return; }
+  if (options.length < 2) { BF.toast('Type at least 2 options first'); return; }
+  var same = BF.lib.lists.filter(function (l) { return BF.sameName(l.name, name); })[0];
+  ui.saveBtn.disabled = true;
+  var id = await BF.run(async function () {
+    if (same) {
+      BF.q(await BF.sb.from('bf_wheel_lists').update({ options: options }).eq('id', same.id));
+      return same.id;
+    }
+    var r = BF.q(await BF.sb.from('bf_wheel_lists').insert({ name: name, options: options }).select('id').single());
+    return r ? r.id : null;
+  });
+  ui.saveBtn.disabled = false;
+  if (id === false) return;
+  BF.wheel.listId = id;
+  BF.renderPlay();
+  BF.toast(same ? 'Updated ' + same.name : 'Saved ' + name);
+};
+
+BF.deleteWheelList = async function (id) {
+  var old = BF.lib.lists.filter(function (l) { return String(l.id) === String(id); })[0];
+  if (!old) return;
+  var ok = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_wheel_lists').delete().eq('id', old.id));
+  });
+  if (ok === false) return;
+  BF.wheel.listId = null;
+  BF.renderPlay();
+  BF.toast('Deleted ' + old.name, function () {
+    var row = {};
+    BF.COLUMNS.bf_wheel_lists.forEach(function (c) { if (old[c] !== undefined) row[c] = old[c]; });
+    BF.run(async function () { BF.q(await BF.sb.from('bf_wheel_lists').insert(row)); }).then(function (r) {
+      if (r !== false) { BF.wheel.listId = old.id; BF.renderPlay(); }
+    });
+  });
 };
 
 BF.init();
