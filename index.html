@@ -695,6 +695,22 @@ select.bf-field {
 .bf-toast-layer.is-top { top: calc(12px + env(safe-area-inset-top)); bottom: auto; }
 .bf-hist-noname { color: var(--bf-muted); font-style: italic; }
 
+/* ---------- batch J: library as the main list, a star for each person ---------- */
+.bf-line-dish .bf-line-name { flex: 0 1 auto; }
+.bf-line-favs { flex: 0 0 auto; font-size: 13px; line-height: 1; letter-spacing: 1px; white-space: nowrap; }
+.bf-line-dish .bf-line-bits { margin-left: auto; }
+.bf-tag-where { text-transform: none; letter-spacing: 0; white-space: nowrap; }
+.bf-link-card { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bf-goldsoft); }
+.bf-link-text { flex: 1 1 auto; min-width: 0; margin: 0; font-weight: 800; font-size: 14px; overflow-wrap: anywhere; }
+.bf-link-card .bf-btn { flex: 0 0 auto; }
+.bf-link-sum { margin: 0; font-weight: 800; font-size: 14px; }
+.bf-link-list { padding: 2px 12px; }
+.bf-link-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1.5px dashed var(--bf-line); }
+.bf-link-row:first-child { border-top: 0; }
+.bf-link-name { flex: 1 1 auto; min-width: 0; font-weight: 800; font-size: 15px; overflow-wrap: anywhere; }
+.bf-link-row select.bf-field { flex: 0 0 auto; width: 136px; min-height: 40px; font-size: 16px; }
+.bf-act-stars { margin: -4px 0 10px; font-weight: 800; font-size: 14px; overflow-wrap: anywhere; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -831,7 +847,7 @@ select.bf-field {
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v17';
+var BF_VERSION = 'bf-v18';
 
 var BF = {
   sb: null,
@@ -6342,6 +6358,768 @@ BF.sheetSave = function (btn, fn) {
       }
       throw e;
     }
+  });
+};
+
+/* ===================== batch J: Food library as the main list + a star for each person ===================== */
+
+/* ---------- Pantry: a fourth kind (ingredients, snacks, pastes, drinks) ---------- */
+BF.KINDS = [['ready', 'Ready'], ['home', 'Home-cooked'], ['takeout', 'Takeout'], ['ingredient', 'Pantry']];
+BF.LIB_FILTERS = [['all', 'All'], ['fav', '\u2605'], ['while', 'Not lately'], ['ready', 'Ready'], ['home', 'Home'], ['takeout', 'Takeout'], ['ingredient', 'Pantry']];
+BF.NOTE_TONE.ingredient = 'frost';
+
+/* The Pantry note starts folded on every phone (once); after that the phone remembers. */
+(function () {
+  if (BF._folds['lib:ingredient:set']) return;
+  BF._folds['lib:ingredient'] = true;
+  BF._folds['lib:ingredient:set'] = true;
+  try { localStorage.setItem('bf-folds', JSON.stringify(Object.keys(BF._folds))); } catch (e) { /* ignore */ }
+})();
+
+/* Import accepts the new kind. */
+var _bfRowProblemJ = BF.rowProblem;
+BF.rowProblem = function (t, r) {
+  if (t === 'bf_dishes' && r.kind === 'ingredient') {
+    r.kind = 'home';
+    var p = _bfRowProblemJ.apply(this, arguments);
+    r.kind = 'ingredient';
+    return p;
+  }
+  if (t === 'bf_dish_favs' && typeof r.email === 'string') r.email = r.email.trim().toLowerCase();
+  return _bfRowProblemJ.apply(this, arguments);
+};
+
+/* ---------- stars: one per person, in bf_dish_favs (part of the Food library backup section) ---------- */
+BF.sectionOf('bf_dishes').tables.push('bf_dish_favs');
+BF.COLUMNS.bf_dish_favs = ['dish_id', 'email', 'created_at'];
+BF.KEYS.bf_dish_favs = ['dish_id', 'email'];
+BF.WRITE_ORDER.splice(BF.WRITE_ORDER.indexOf('bf_dishes') + 1, 0, 'bf_dish_favs');
+BF.DELETE_ORDER = BF.WRITE_ORDER.slice().reverse();
+
+/* A star for a dish that won't exist is dropped (counted with the cleared dish links). */
+var _bfClearDishLinksJ = BF.clearDishLinks;
+BF.clearDishLinks = function (tables, dishIds) {
+  var n = _bfClearDishLinksJ.apply(this, arguments);
+  if (tables.bf_dish_favs) {
+    var keep = tables.bf_dish_favs.filter(function (r) { return dishIds.has(String(r.dish_id)); });
+    n += tables.bf_dish_favs.length - keep.length;
+    tables.bf_dish_favs = keep;
+  }
+  return n;
+};
+
+BF.lib.favs = [];
+BF.lc2 = function (s) { return String(s == null ? '' : s).trim().toLowerCase(); };
+BF.myKey = function () { return BF.lc2(BF.myEmail()); };
+BF.memberByEmail = function (e) {
+  e = BF.lc2(e);
+  return (BF.members || []).filter(function (m) { return BF.lc2(m.email) === e; })[0] || null;
+};
+
+BF.loadFavs = async function () {
+  if (!BF.sb) return;
+  try {
+    BF.lib.favs = (await BF.fetchAll('bf_dish_favs')) || [];
+  } catch (e) {
+    console.warn('stars load failed', e);
+  }
+};
+
+/* d._stars = member emails who starred it (lower case); d.favourite = anyone starred it.
+   Wheel "\u2605 Only", Swipe "Favourites" and the \u2605 filter all read d.favourite, so they mean "any star". */
+BF.applyFavs = function () {
+  var by = {};
+  var members = BF.members || [];
+  (BF.lib.favs || []).forEach(function (f) {
+    var e = BF.lc2(f.email);
+    if (!e || (members.length && !BF.memberByEmail(e))) return;
+    var k = String(f.dish_id);
+    if (!by[k]) by[k] = [];
+    if (by[k].indexOf(e) < 0) by[k].push(e);
+  });
+  BF.lib.dishes.forEach(function (d) {
+    d._stars = by[String(d.id)] || [];
+    d.favourite = d._stars.length > 0;
+  });
+};
+
+BF.iStarred = function (d) { return !!d && (d._stars || []).indexOf(BF.myKey()) >= 0; };
+BF.starMembers = function (d) {
+  var s = (d && d._stars) || [];
+  return (BF.members || []).filter(function (m) { return s.indexOf(BF.lc2(m.email)) >= 0; });
+};
+BF.starEmojis = function (d) {
+  return BF.starMembers(d).map(function (m) { return m.emoji || BF.firstChar(m.display_name || m.email); });
+};
+BF.byStars = function (a, b) {
+  return ((b._stars || []).length - (a._stars || []).length) || BF.byName(a, b);
+};
+
+var _bfLoadLibraryJ = BF.loadLibrary;
+BF.loadLibrary = async function () {
+  var favs = BF.loadFavs();
+  await _bfLoadLibraryJ.apply(this, arguments);
+  await favs;
+  BF.applyFavs();
+  if (BF.lib.loaded) BF.renderLibrary();
+};
+
+/* Your own star only. Optimistic; the reload after the save corrects it. */
+BF.toggleFav = async function (id) {
+  var d = BF.findDish(id);
+  var me = BF.myKey();
+  if (!d || !me) return;
+  var on = !BF.iStarred(d);
+  if (on) BF.lib.favs = BF.lib.favs.concat([{ dish_id: d.id, email: me }]);
+  else BF.lib.favs = BF.lib.favs.filter(function (f) { return !(String(f.dish_id) === String(d.id) && BF.lc2(f.email) === me); });
+  BF.applyFavs();
+  BF.renderLibrary();
+  await BF.run(async function () {
+    if (on) BF.q(await BF.sb.from('bf_dish_favs').upsert({ dish_id: d.id, email: me }, { onConflict: 'dish_id,email', ignoreDuplicates: true }));
+    else BF.q(await BF.sb.from('bf_dish_favs').delete().eq('dish_id', d.id).eq('email', me));
+  });
+};
+
+/* Deleting a dish drops its stars (on delete cascade); Undo puts them back. */
+BF._favStash = {};
+var _bfDeleteDishJ = BF.deleteDish;
+BF.deleteDish = function (id) {
+  BF._favStash[String(id)] = (BF.lib.favs || []).filter(function (f) { return String(f.dish_id) === String(id); })
+    .map(function (f) { return { dish_id: f.dish_id, email: BF.lc2(f.email) }; });
+  return _bfDeleteDishJ.apply(this, arguments);
+};
+var _bfUndoDeleteDishJ = BF.undoDeleteDish;
+BF.undoDeleteDish = async function (old, links) {
+  await _bfUndoDeleteDishJ.apply(this, arguments);
+  var rows = BF._favStash[String(old.id)] || [];
+  if (!rows.length || !BF.findDish(old.id)) return;
+  delete BF._favStash[String(old.id)];
+  await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_dish_favs').upsert(rows, { onConflict: 'dish_id,email', ignoreDuplicates: true }));
+  });
+};
+
+/* ---------- where a dish is in the house: "Freezer \u00D75 \u00B7 Storage" ---------- */
+BF.stockText = function (d) {
+  var by = {};
+  BF.inHouse(d).forEach(function (it) {
+    var loc = BF.locLabel(it.location);
+    by[loc] = (by[loc] || 0) + (it.count != null && it.count > 1 ? it.count : 1);
+  });
+  return BF.LOCATIONS.map(function (l) { return l[1]; }).filter(function (n) { return by[n]; })
+    .map(function (n) { return by[n] > 1 ? n + ' \u00D7' + by[n] : n; }).join(' \u00B7 ');
+};
+
+/* ---------- Library lines: your star, who starred it, when you had it, where it is ---------- */
+BF.dishLine = function (d) {
+  var name = String(d.name == null ? '' : d.name);
+  var line = BF.el('div', 'bf-line bf-line-dish');
+  var mine = BF.iStarred(d);
+  var star = BF.el('button', 'bf-star bf-line-star' + (mine ? ' is-on' : ''), mine ? '\u2605' : '\u2606');
+  star.type = 'button';
+  star.setAttribute('aria-pressed', mine ? 'true' : 'false');
+  star.setAttribute('aria-label', 'Your favourite: ' + name);
+  star.addEventListener('click', function () { BF.toggleFav(d.id); });
+  line.appendChild(star);
+  var nb = BF.el('button', 'bf-line-main');
+  nb.type = 'button';
+  nb.setAttribute('aria-label', name + '. Actions');
+  nb.appendChild(BF.el('span', 'bf-line-name', name));
+  var who = BF.starMembers(d);
+  if (who.length) {
+    var favs = BF.el('span', 'bf-line-favs', BF.starEmojis(d).join(''));
+    favs.setAttribute('aria-label', 'Starred by ' + who.map(function (m) { return m.display_name || m.email; }).join(', '));
+    favs.setAttribute('role', 'img');
+    nb.appendChild(favs);
+  }
+  var bits = BF.el('span', 'bf-line-bits');
+  var had = BF.hadText(d);
+  if (had) bits.appendChild(BF.el('span', 'bf-line-when', had));
+  var where = BF.stockText(d);
+  if (where) bits.appendChild(BF.el('span', 'bf-tag bf-tag-ready bf-tag-where', where));
+  nb.appendChild(bits);
+  nb.addEventListener('click', function () { BF.openDishActions(d.id); });
+  line.appendChild(nb);
+  return line;
+};
+
+/* Fridge items with no Library entry (no link, or a link to a dish that's gone). */
+BF.unlinkedItems = function () {
+  if (!BF.data.loaded || !BF.lib.loaded) return [];
+  return BF.data.items.filter(function (it) {
+    if (!String(it.name == null ? '' : it.name).trim()) return false;
+    return !(it.dish_id != null && BF.findDish(it.dish_id));
+  });
+};
+
+BF.linkBanner = function () {
+  var n = BF.unlinkedItems().length;
+  if (!n) return null;
+  var c = BF.el('div', 'bf-card bf-link-card');
+  c.appendChild(BF.el('p', 'bf-link-text', BF.plural(n, 'thing', 'things') + ' in the house ' + (n === 1 ? 'isn\'t' : 'aren\'t') + ' in the Library yet.'));
+  c.appendChild(BF.button('Link', 'bf-btn-primary bf-btn-sm', function () { BF.openLinkSheet(); }, 'Link them to the Library'));
+  return c;
+};
+
+BF.renderLibrary = function () {
+  var ui = BF.libUI || BF.buildLibraryUI();
+  BF.applyFavs();
+  ui.fbtns.forEach(function (b) {
+    var on = b._val === BF._libFilter;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  var list = ui.list;
+  list.replaceChildren();
+  if (!BF.lib.loaded) {
+    if (BF.lib.error) list.appendChild(BF.emptyCard('Couldn\'t load the library. Reopen the app to retry.'));
+    return;
+  }
+  var banner = BF.linkBanner();
+  if (banner) list.appendChild(banner);
+  var all = BF.lib.dishes.slice().sort(BF.byStars);
+  if (!all.length) {
+    list.appendChild(BF.emptyCard('No dishes yet. Add one with +, or Paste a list.'));
+    return;
+  }
+  var f = BF._libFilter;
+  var kinds = BF.KINDS.map(function (k) { return k[0]; });
+  var shown = all.filter(function (d) {
+    if (f === 'fav') return !!d.favourite;
+    if (f === 'while') return d.kind !== 'ingredient' && BF.haventHad(d);
+    if (kinds.indexOf(f) >= 0) return (d.kind || 'home') === f;
+    return true;
+  });
+  var needle = ui.search.value.trim().toLowerCase();
+  if (needle) shown = shown.filter(function (d) { return String(d.name == null ? '' : d.name).toLowerCase().indexOf(needle) >= 0; });
+  if (!shown.length) {
+    var msg = needle ? 'Nothing matches.'
+      : f === 'fav' ? 'No favourites yet. Tap the star on a dish.'
+      : f === 'while' ? 'Nothing here \u2013 you\'ve had everything lately.'
+      : 'Nothing of this kind yet.';
+    list.appendChild(BF.emptyCard(msg));
+    return;
+  }
+  var forceOpen = !!needle || kinds.indexOf(f) >= 0;
+  BF.KINDS.forEach(function (k) {
+    var rows = shown.filter(function (d) { return (d.kind || 'home') === k[0]; });
+    if (!rows.length) return;
+    list.appendChild(BF.note('lib:' + k[0], k[1], rows.map(BF.dishLine), BF.NOTE_TONE[k[0]], forceOpen));
+  });
+  var other = shown.filter(function (d) { return kinds.indexOf(d.kind || 'home') < 0; });
+  if (other.length) list.appendChild(BF.note('lib:other', 'Other', other.map(BF.dishLine), 'ice', !!needle));
+};
+
+/* Tap a dish: who starred it and where it is, then We ate this, Edit, Delete. */
+BF.openDishActions = function (id) {
+  var d = BF.findDish(id);
+  if (!d) return;
+  var name = String(d.name == null ? '' : d.name);
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', name));
+    var meta = [BF.kindLabel(d.kind) || 'Dish'];
+    var had = BF.hadText(d);
+    if (had) meta.push(had);
+    var where = BF.stockText(d);
+    if (where) meta.push(where);
+    box.appendChild(BF.el('p', 'bf-hint bf-act-meta', meta.join(' \u00B7 ')));
+    var who = BF.starMembers(d);
+    if (who.length) {
+      box.appendChild(BF.el('p', 'bf-act-stars', '\u2605 ' + who.map(function (m) {
+        return (m.emoji ? m.emoji + ' ' : '') + (m.display_name || m.email);
+      }).join(' \u00B7 ')));
+    }
+    var ings = BF.ingredientsOf(d);
+    if (ings.length) {
+      var tags = BF.el('div', 'bf-tags');
+      ings.forEach(function (x) { tags.appendChild(BF.el('span', 'bf-tag bf-tag-ing', x)); });
+      box.appendChild(tags);
+    }
+    var acts = BF.el('div', 'bf-act-list');
+    acts.appendChild(BF.button('We ate this', 'bf-btn-primary bf-btn-wide bf-act-main', function () { BF.closeSheet(); BF.weAteThis(id); }));
+    var row = BF.el('div', 'bf-sheet-acts');
+    var mine = BF.iStarred(d);
+    row.appendChild(BF.button(mine ? '\u2605 Unstar' : '\u2606 Star', '', function () { BF.closeSheet(); BF.toggleFav(id); }));
+    row.appendChild(BF.button('Edit', '', function () { BF.openDishSheet(id); }));
+    row.appendChild(BF.button('Delete', 'bf-btn-ghost', function () { BF.closeSheet(); BF.deleteDish(id); }));
+    acts.appendChild(row);
+    box.appendChild(acts);
+  });
+};
+
+/* The dish sheet's shared Favourite switch goes: stars are per person now (list or dish actions). */
+var _bfOpenDishSheetJ = BF.openDishSheet;
+BF.openDishSheet = function () {
+  _bfOpenDishSheetJ.apply(this, arguments);
+  var body = BF.$('bf-sheet-body');
+  if (!body) return;
+  Array.prototype.forEach.call(body.querySelectorAll('.bf-pill'), function (b) {
+    if (b.textContent !== '\u2605 Favourite') return;
+    var wrap = b.parentNode;
+    b.remove();
+    if (wrap && wrap.classList.contains('bf-pills') && !wrap.children.length) wrap.remove();
+  });
+};
+
+/* ---------- linking: every fridge item points at a Library entry ---------- */
+/* Guess a kind for a new entry from the items with that name. */
+BF.guessKind = function (items) {
+  if (items.some(function (it) { return it.ready || it.location === 'freezer'; })) return 'ready';
+  if (items.some(function (it) { return it.leftover; })) return 'home';
+  return 'ingredient';
+};
+
+/* The dish id for a name: the Library entry with that name, else a new one of this kind.
+   Returns null (and the item stays unlinked) if it can't be made \u2013 the Library banner offers it again. */
+BF.ensureDish = async function (name, kind) {
+  name = String(name == null ? '' : name).trim();
+  if (!name) return null;
+  var d = BF.dishByName(name);
+  if (d) return d.id;
+  try {
+    var res = await BF.sb.from('bf_dishes').insert({ name: name, kind: kind || 'ingredient' }).select('id').single();
+    if (!res.error && res.data) return res.data.id;
+    if (res.error && res.error.code === '23505') {
+      var hit = (await BF.fetchAll('bf_dishes', 'id,name')).filter(function (x) { return BF.sameName(x.name, name); })[0];
+      if (hit) return hit.id;
+    }
+    console.warn('library entry not made', res.error);
+  } catch (e) {
+    console.warn('library entry not made', e);
+  }
+  return null;
+};
+
+/* Plan for "Link": items that match an entry by name, and new entries (one per name). */
+BF.linkPlan = function () {
+  var plan = { link: [], create: [] };
+  BF.unlinkedItems().forEach(function (it) {
+    var name = String(it.name).trim();
+    var d = BF.dishByName(name);
+    if (d) { plan.link.push({ item: it, dish: d }); return; }
+    var c = plan.create.filter(function (x) { return BF.sameName(x.name, name); })[0];
+    if (!c) { c = { name: name, items: [] }; plan.create.push(c); }
+    c.items.push(it);
+  });
+  plan.create.forEach(function (c) { c.kind = BF.guessKind(c.items); });
+  plan.create.sort(function (a, b) {
+    var ka = BF.KINDS.map(function (k) { return k[0]; });
+    return (ka.indexOf(a.kind) - ka.indexOf(b.kind)) || BF.byName(a, b);
+  });
+  return plan;
+};
+
+BF.openLinkSheet = function () {
+  var plan = BF.linkPlan();
+  var total = plan.link.length + plan.create.reduce(function (n, c) { return n + c.items.length; }, 0);
+  if (!total) { BF.toast('Everything is already in the Library'); return; }
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Link to the Library'));
+    var form = BF.el('div', 'bf-form');
+    form.appendChild(BF.el('p', 'bf-hint', 'Every item gets a Library entry, so stars, the wheel, Not lately and Cook all know about it.'));
+    if (plan.link.length) {
+      form.appendChild(BF.el('p', 'bf-link-sum', BF.plural(plan.link.length, 'item matches', 'items match') + ' a Library entry by name.'));
+    }
+    if (plan.create.length) {
+      var g = BF.el('section', 'bf-group');
+      g.appendChild(BF.groupHead('New in the Library', String(plan.create.length)));
+      g.appendChild(BF.el('p', 'bf-hint', 'Kinds are a guess \u2013 change any here, or later in the Library.'));
+      var card = BF.el('div', 'bf-card bf-link-list');
+      plan.create.forEach(function (c) {
+        var r = BF.el('div', 'bf-link-row');
+        var nm = BF.el('span', 'bf-link-name', c.name);
+        r.appendChild(nm);
+        var sel = document.createElement('select');
+        sel.className = 'bf-field';
+        sel.setAttribute('aria-label', 'Kind for ' + c.name);
+        BF.KINDS.forEach(function (k) {
+          var o = document.createElement('option');
+          o.value = k[0];
+          o.textContent = k[1];
+          sel.appendChild(o);
+        });
+        sel.value = c.kind;
+        sel.addEventListener('change', function () { c.kind = sel.value; });
+        r.appendChild(sel);
+        card.appendChild(r);
+      });
+      g.appendChild(card);
+      form.appendChild(g);
+    }
+    var go = BF.button('Link ' + BF.plural(total, 'item', 'items'), 'bf-btn-gold bf-btn-wide');
+    go.addEventListener('click', function () { BF.linkEverything(plan, go); });
+    form.appendChild(go);
+    form.appendChild(BF.button('Not now', 'bf-btn-ghost bf-btn-wide', function () { BF.closeSheet(); }));
+    box.appendChild(form);
+  });
+};
+
+/* Make the new entries, link every item, and link eaten-log rows by name. Undo reverses all three. */
+BF.linkEverything = async function (plan, btn) {
+  var undo = { dishes: [], items: [], eaten: [] };
+  var ok = await BF.sheetSave(btn, async function () {
+    var idOf = {};
+    plan.link.forEach(function (x) { idOf[BF.lc2(x.dish.name)] = x.dish.id; });
+    BF.lib.dishes.forEach(function (d) { idOf[BF.lc2(d.name)] = d.id; });
+    for (var i = 0; i < plan.create.length; i += 100) {
+      var chunk = plan.create.slice(i, i + 100);
+      var res = await BF.sb.from('bf_dishes').insert(chunk.map(function (c) { return { name: c.name, kind: c.kind }; })).select('id,name');
+      if (res.error) {
+        // Someone else added one of these names meanwhile: fall back to one at a time.
+        for (var j = 0; j < chunk.length; j++) {
+          var one = await BF.sb.from('bf_dishes').insert({ name: chunk[j].name, kind: chunk[j].kind }).select('id,name').single();
+          if (!one.error && one.data) { undo.dishes.push(one.data.id); idOf[BF.lc2(one.data.name)] = one.data.id; }
+          else if (!(one.error && one.error.code === '23505')) throw one.error || new Error('not saved');
+        }
+        (await BF.fetchAll('bf_dishes', 'id,name')).forEach(function (d) {
+          if (idOf[BF.lc2(d.name)] == null) idOf[BF.lc2(d.name)] = d.id;
+        });
+      } else {
+        (res.data || []).forEach(function (d) { undo.dishes.push(d.id); idOf[BF.lc2(d.name)] = d.id; });
+      }
+    }
+    // Items: one update per target entry.
+    var groups = {};
+    plan.link.forEach(function (x) { (groups[x.dish.id] = groups[x.dish.id] || []).push(x.item); });
+    plan.create.forEach(function (c) {
+      var id = idOf[BF.lc2(c.name)];
+      if (id != null) groups[id] = (groups[id] || []).concat(c.items);
+    });
+    var targets = Object.keys(groups);
+    for (var t = 0; t < targets.length; t++) {
+      var its = groups[targets[t]];
+      for (var k = 0; k < its.length; k += 100) {
+        var part = its.slice(k, k + 100);
+        BF.q(await BF.sb.from('bf_items').update({ dish_id: targets[t] }).in('id', part.map(function (x) { return x.id; })));
+        part.forEach(function (x) { undo.items.push({ id: x.id, dish_id: x.dish_id == null ? null : x.dish_id }); });
+      }
+    }
+    // Eaten log: unlinked rows whose name is now in the Library.
+    var eg = {};
+    (BF.lib.eaten || []).forEach(function (e) {
+      if (e.dish_id != null) return;
+      var id = idOf[BF.lc2(e.item_name)];
+      if (id != null) (eg[id] = eg[id] || []).push(e.id);
+    });
+    var eks = Object.keys(eg);
+    for (var q = 0; q < eks.length; q++) {
+      for (var m = 0; m < eg[eks[q]].length; m += 100) {
+        var ids = eg[eks[q]].slice(m, m + 100);
+        BF.q(await BF.sb.from('bf_eaten').update({ dish_id: eks[q] }).in('id', ids).is('dish_id', null));
+        undo.eaten = undo.eaten.concat(ids);
+      }
+    }
+  });
+  if (ok === false) return;
+  var msg = 'Linked ' + BF.plural(undo.items.length, 'item', 'items');
+  if (undo.dishes.length) msg += ' \u00B7 ' + undo.dishes.length + ' new in the Library';
+  BF.toast(msg, function () { BF.unlinkEverything(undo); });
+};
+
+BF.unlinkEverything = async function (undo) {
+  var ok = await BF.run(async function () {
+    var back = {};
+    undo.items.forEach(function (x) { var k = x.dish_id == null ? '' : String(x.dish_id); (back[k] = back[k] || []).push(x.id); });
+    var ks = Object.keys(back);
+    for (var i = 0; i < ks.length; i++) {
+      for (var j = 0; j < back[ks[i]].length; j += 100) {
+        BF.q(await BF.sb.from('bf_items').update({ dish_id: ks[i] === '' ? null : ks[i] }).in('id', back[ks[i]].slice(j, j + 100)));
+      }
+    }
+    for (var e = 0; e < undo.eaten.length; e += 100) {
+      BF.q(await BF.sb.from('bf_eaten').update({ dish_id: null }).in('id', undo.eaten.slice(e, e + 100)));
+    }
+    for (var d = 0; d < undo.dishes.length; d += 100) {
+      BF.q(await BF.sb.from('bf_dishes').delete().in('id', undo.dishes.slice(d, d + 100)));
+    }
+  });
+  if (ok) BF.toast('Unlinked');
+};
+
+/* ---------- item sheet (replaces batch C's): the name picks its Library entry, or makes one ---------- */
+BF.openItemSheet = function (id) {
+  var old = id == null ? null : BF.findItem(id);
+  if (id != null && !old) return;
+  var st = old ? {
+    name: String(old.name == null ? '' : old.name),
+    count: old.count == null ? null : old.count,
+    location: old.location || null,
+    expiry: old.expiry ? String(old.expiry).slice(0, 10) : null,
+    ready: !!old.ready,
+    leftover: !!old.leftover,
+    notes: old.notes == null ? '' : String(old.notes),
+    dish_id: old.dish_id == null ? null : old.dish_id
+  } : { name: '', count: null, location: 'fridge', expiry: null, ready: false, leftover: false, notes: '', dish_id: null };
+  st.kind = null;          // chosen kind for a new Library entry (null = follow the guess)
+
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', old ? st.name : 'Add to the fridge'));
+    var form = BF.el('div', 'bf-form');
+
+    var nameIn = BF.input({ placeholder: 'e.g. Pork Curry', value: st.name, suggest: true });
+    var nameWrap = BF.labelled('Name', nameIn);
+    var err = BF.el('p', 'bf-err', 'Needs a name');
+    err.hidden = true;
+    err.setAttribute('role', 'alert');
+    nameWrap.appendChild(err);
+    form.appendChild(nameWrap);
+
+    // Count
+    var cfs = BF.el('fieldset', 'bf-fieldset');
+    cfs.appendChild(BF.el('legend', 'bf-label', 'Count'));
+    var counter = BF.el('div', 'bf-counter');
+    var val = BF.el('span', 'bf-counter-val');
+    val.setAttribute('aria-live', 'polite');
+    var showCount = function () { val.textContent = st.count == null ? '-' : String(st.count); };
+    counter.appendChild(BF.button('-', 'bf-square', function () {
+      if (st.count == null) return;
+      st.count = st.count <= 1 ? null : st.count - 1;
+      showCount();
+    }, 'One less'));
+    counter.appendChild(val);
+    counter.appendChild(BF.button('+', 'bf-square', function () {
+      st.count = st.count == null ? 1 : st.count + 1;
+      showCount();
+    }, 'One more'));
+    counter.appendChild(BF.button('clear', 'bf-btn-ghost bf-btn-sm', function () { st.count = null; showCount(); }, 'Clear count'));
+    showCount();
+    cfs.appendChild(counter);
+    form.appendChild(cfs);
+
+    // Where
+    var syncLib = function () {};
+    form.appendChild(BF.pillGroup('Where', BF.LOCATIONS,
+      function () { return st.location; }, function (v) { st.location = v; syncLib(); }));
+
+    // Goes off
+    var dateIn = BF.input({ type: 'date', value: st.expiry || '' });
+    dateIn.setAttribute('aria-label', 'Goes off on');
+    var offOpts = [[null, 'Not sure'], [0, 'Today'], [1, 'Tomorrow'], [3, '3 days'], [7, 'A week']];
+    var off = BF.pillGroup('Goes off', offOpts, function () {
+      if (!st.expiry) return null;
+      for (var i = 1; i < offOpts.length; i++) {
+        if (BF.addDays(offOpts[i][0]) === st.expiry) return offOpts[i][0];
+      }
+      return undefined;
+    }, function (v) {
+      st.expiry = v === null ? null : BF.addDays(v);
+      dateIn.value = st.expiry || '';
+    });
+    dateIn.addEventListener('change', function () { st.expiry = dateIn.value || null; off._sync(); });
+    off._row.appendChild(dateIn);
+    form.appendChild(off);
+
+    // Toggles
+    var tg = BF.el('div', 'bf-pills');
+    tg.appendChild(BF.togglePill('Ready to heat', function () { return st.ready; }, function (v) { st.ready = v; syncLib(); }));
+    tg.appendChild(BF.togglePill('Leftover', function () { return st.leftover; }, function (v) { st.leftover = v; syncLib(); }));
+    form.appendChild(tg);
+
+    // In the Library
+    var sel = document.createElement('select');
+    sel.className = 'bf-field';
+    var opt = function (value, text) {
+      var o = document.createElement('option');
+      o.value = value;
+      o.textContent = text;
+      sel.appendChild(o);
+    };
+    opt('', 'Same name');
+    BF.lib.dishes.slice().sort(BF.byName).forEach(function (d) {
+      opt(String(d.id), String(d.name == null ? '' : d.name) + ' (' + (BF.kindLabel(d.kind) || 'dish').toLowerCase() + ')');
+    });
+    if (st.dish_id != null && !BF.findDish(st.dish_id)) st.dish_id = null;
+    sel.value = st.dish_id == null ? '' : String(st.dish_id);
+    var libWrap = BF.labelled('In the Library', sel);
+    var libNote = BF.el('p', 'bf-hint', '');
+    libWrap.appendChild(libNote);
+    form.appendChild(libWrap);
+    var guess = function () {
+      return BF.guessKind([{ ready: st.ready, leftover: st.leftover, location: st.location }]);
+    };
+    var kindFs = BF.pillGroup('New in the Library as', BF.KINDS,
+      function () { return st.kind || guess(); }, function (v) { st.kind = v; });
+    form.appendChild(kindFs);
+    // The dish this item will point at (null = a new entry will be made).
+    var target = function () {
+      if (sel.value) return BF.findDish(sel.value);
+      var n = nameIn.value.trim();
+      return n ? BF.dishByName(n) : null;
+    };
+    syncLib = function () {
+      var d = target();
+      var n = nameIn.value.trim();
+      kindFs.hidden = !!d || !n;
+      if (d) libNote.textContent = (sel.value ? 'Linked to ' : 'Matches ') + d.name + ' (' + (BF.kindLabel(d.kind) || 'dish') + ').';
+      else libNote.textContent = n ? 'New name \u2013 it joins the Library when you save.' : 'Type a name \u2013 it links to the Library entry with that name.';
+      kindFs._sync();
+    };
+    sel.addEventListener('change', syncLib);
+    nameIn.addEventListener('input', function () { err.hidden = true; syncLib(); });
+    syncLib();
+
+    var notesIn = BF.input({ value: st.notes });
+    form.appendChild(BF.labelled('Notes (optional)', notesIn));
+
+    var save = BF.button('Save', 'bf-btn-gold bf-btn-wide');
+    save.addEventListener('click', async function () {
+      var name = nameIn.value.trim();
+      if (!name) {
+        err.hidden = false;
+        BF.shake(nameIn);
+        nameIn.focus();
+        return;
+      }
+      var row = {
+        name: name,
+        count: st.count,
+        location: st.location,
+        expiry: st.expiry,
+        ready: st.ready,
+        leftover: st.leftover,
+        notes: notesIn.value.trim() || null
+      };
+      var d = target();
+      var kind = st.kind || guess();
+      var ok = await BF.sheetSave(save, async function () {
+        row.dish_id = d ? d.id : await BF.ensureDish(name, kind);
+        if (old) BF.q(await BF.sb.from('bf_items').update(row).eq('id', old.id));
+        else BF.q(await BF.sb.from('bf_items').insert(row));
+      });
+      if (ok) BF.toast(old ? 'Saved ' + name : 'Added ' + name);
+    });
+    form.appendChild(save);
+
+    if (old) {
+      var acts = BF.el('div', 'bf-sheet-acts');
+      acts.appendChild(BF.button('Ate it', 'bf-btn-primary', function () { BF.closeSheet(); BF.ateIt(old.id); }));
+      acts.appendChild(BF.button('Running low', 'bf-btn-ghost', function () { BF.closeSheet(); BF.runningLow(old.name); }));
+      acts.appendChild(BF.button('Delete', 'bf-btn-ghost', function () { BF.closeSheet(); BF.deleteItem(old.id); }));
+      form.appendChild(acts);
+    }
+    box.appendChild(form);
+  });
+};
+
+/* ---------- bulk add (replaces batch C's): names link to the Library; new names join it ---------- */
+BF.openBulkItems = function () {
+  var st = { location: 'fridge', kind: null };
+  var guess = function () { return st.location === 'freezer' ? 'ready' : 'ingredient'; };
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Bulk add'));
+    var form = BF.el('div', 'bf-form');
+    form.appendChild(BF.el('p', 'bf-hint', 'One item per line. Names already in the Library link to it; new names join the Library.'));
+    var ta = BF.input({ tag: 'textarea', placeholder: 'Carrots\n\u1000\u103C\u1000\u103A\u1025\nYogurt' });
+    ta.rows = 6;
+    form.appendChild(BF.labelled('Items to add, one per line', ta, true));
+    var kindFs;
+    form.appendChild(BF.pillGroup('Where', BF.LOCATIONS,
+      function () { return st.location; }, function (v) { st.location = v; if (kindFs) kindFs._sync(); }));
+    kindFs = BF.pillGroup('New names join the Library as', BF.KINDS,
+      function () { return st.kind || guess(); }, function (v) { st.kind = v; });
+    form.appendChild(kindFs);
+    var go = BF.button('', 'bf-btn-gold bf-btn-wide');
+    var sync = function () {
+      var n = BF.cleanLines(ta.value).length;
+      go.textContent = 'Add ' + BF.plural(n, 'item', 'items');
+      go.disabled = n === 0;
+    };
+    ta.addEventListener('input', sync);
+    sync();
+    go.addEventListener('click', async function () {
+      var lines = BF.cleanLines(ta.value);
+      if (!lines.length || go.disabled) return;
+      var kind = st.kind || guess();
+      var location = st.location;
+      var made = 0;
+      var ok = await BF.sheetSave(go, async function () {
+        var idOf = {};
+        var fresh = [];
+        lines.forEach(function (n) {
+          var d = BF.dishByName(n);
+          if (d) idOf[BF.lc2(n)] = d.id;
+          else if (!fresh.some(function (f) { return BF.sameName(f, n); })) fresh.push(n);
+        });
+        if (fresh.length) {
+          var res = await BF.sb.from('bf_dishes').insert(fresh.map(function (n) { return { name: n, kind: kind }; })).select('id,name');
+          if (!res.error) {
+            (res.data || []).forEach(function (d) { idOf[BF.lc2(d.name)] = d.id; });
+            made = (res.data || []).length;
+          } else {
+            for (var i = 0; i < fresh.length; i++) {
+              var id = await BF.ensureDish(fresh[i], kind);
+              if (id != null) { idOf[BF.lc2(fresh[i])] = id; made++; }
+            }
+          }
+        }
+        var rows = lines.map(function (n) {
+          var did = idOf[BF.lc2(n)];
+          return { name: n, location: location, ready: false, leftover: false, dish_id: did == null ? null : did };
+        });
+        BF.q(await BF.sb.from('bf_items').insert(rows));
+      });
+      if (ok) BF.toast('Added ' + BF.plural(lines.length, 'item', 'items') + (made ? ' \u00B7 ' + made + ' new in the Library' : ''));
+    });
+    form.appendChild(go);
+    box.appendChild(form);
+  });
+};
+
+/* ---------- Bought (replaces batch B3's): the stocked item links to its Library entry (new ones: Pantry) ---------- */
+BF.bought = async function (id, stock) {
+  var g = BF.findGrocery(id);
+  if (!g) return;
+  var action = stock ? 'bought' : 'bought_nostock';
+  var h = { id: null, action: action, label: g.name, data: { grocery_id: id, item_id: null } };
+  var res = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_groceries')
+      .update({ status: 'bought', bought_by: BF.myEmail(), bought_at: new Date().toISOString() })
+      .eq('id', id));
+    if (stock) {
+      var did = await BF.ensureDish(g.name, 'ingredient');
+      var it = BF.q(await BF.sb.from('bf_items').insert({ name: g.name, location: 'fridge', dish_id: did }).select('id').single());
+      h.data.item_id = it ? it.id : null;
+    }
+    h.id = await BF.logHistory(action, g.name, h.data);
+  });
+  if (res === false) return;
+  BF.toast(stock ? g.name + ' \u2192 fridge' : g.name + ' bought', function () { BF.putBack(h); });
+};
+
+/* ---------- Pantry stays off the wheel's Library source (a Pantry switch turns it on) and off Swipe ---------- */
+BF.wheel.pantry = false;
+var _bfWheelOptionsJ = BF.wheelOptions;
+BF.wheelOptions = function () {
+  var out = _bfWheelOptionsJ.apply(this, arguments);
+  if (BF.wheel.source !== 'library' || BF.wheel.pantry) return out;
+  return out.filter(function (o) {
+    var d = o.kind === 'dish' ? BF.findDish(o.id) : null;
+    return !d || d.kind !== 'ingredient';
+  });
+};
+var _bfBuildPlayJ = BF.buildPlayUI;
+BF.buildPlayUI = function () {
+  var ui = _bfBuildPlayJ.apply(this, arguments);
+  var p = BF.playUI;
+  if (p && p.libOpts && !p.pantryPill) {
+    p.pantryPill = BF.togglePill('Pantry', function () { return BF.wheel.pantry; }, function (v) {
+      BF.wheel.pantry = v;
+      BF.wheel.result = null;
+      BF.renderPlay();
+    });
+    p.libOpts.appendChild(p.pantryPill);
+  }
+  return ui;
+};
+
+var _bfSwipeCandidatesJ = BF.swipeCandidates;
+BF.swipeCandidates = function () {
+  var out = _bfSwipeCandidatesJ.apply(this, arguments);
+  var s = BF.swipe.source;
+  if (s !== 'library' && s !== 'fav') return out;
+  return out.filter(function (o) {
+    var d = o.dish_id != null ? BF.findDish(o.dish_id) : null;
+    return !d || d.kind !== 'ingredient';
   });
 };
 
