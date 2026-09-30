@@ -719,6 +719,57 @@ select.bf-field {
   margin: 0 auto calc(10px + env(safe-area-inset-bottom));
 }
 
+/* ---------- batch K: sticky notes, who reacted, colours ---------- */
+.bf-sticky-pink { background: #F9C6D6; }
+.bf-sticky-purple { background: #DCCBF4; }
+.bf-sticky-blue { background: #BFE0F5; }
+.bf-sticky-mint { background: #C6EBD3; }
+.bf-sticky-yellow { background: #F8E3A0; }
+.bf-sticky-peach { background: #FBD9CB; }
+.bf-sticky-coral { background: #F6B7A9; }
+.bf-sticky-grey { background: #E2E0DA; }
+.bf-notes-card { display: flex; flex-direction: column; gap: 10px; }
+.bf-notes-head { display: flex; align-items: center; gap: 10px; }
+.bf-notes-title { flex: 1 1 auto; margin: 0; font-family: var(--bf-font-head); font-size: 20px; font-weight: 700; }
+.bf-notes-empty { margin: 0; font-size: 14px; font-weight: 700; color: var(--bf-muted); }
+.bf-notes-more { align-self: center; }
+.bf-notes-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 2px 2px 4px; }
+.bf-sticky {
+  position: relative; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+  min-width: 0; min-height: 86px; margin: 0; padding: 10px 12px 22px;
+  border: 2px solid #1D3447; border-radius: 4px 4px 14px 4px;
+  box-shadow: 2px 3px 0 #1D3447; color: #1D3447;
+  font-family: var(--bf-font); text-align: left; cursor: pointer;
+  transform: rotate(-1.4deg);
+}
+.bf-notes-grid .bf-sticky:nth-child(2n) { transform: rotate(1.2deg); }
+.bf-notes-grid .bf-sticky:nth-child(3n) { transform: rotate(-0.6deg); }
+.bf-sticky::before {
+  content: ""; position: absolute; top: -7px; left: 50%; width: 34px; height: 12px; margin-left: -17px;
+  background: rgba(255, 255, 255, .55); border: 1.5px solid rgba(29, 52, 71, .25); border-radius: 2px;
+  transform: rotate(-3deg);
+}
+.bf-sticky:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 3px; }
+.bf-sticky-text {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  font-weight: 800; font-size: 14.5px; line-height: 1.3; overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.bf-sticky-who { position: absolute; right: 8px; bottom: 4px; font-size: 15px; line-height: 1; }
+.bf-sticky-big { transform: rotate(-1deg); cursor: default; min-height: 150px; padding: 18px 18px 14px; margin: 10px 4px 16px; }
+.bf-sticky-full { margin: 0 0 14px; font-weight: 800; font-size: 20px; line-height: 1.35; overflow-wrap: anywhere; white-space: pre-wrap; }
+.bf-sticky-by { margin: auto 0 0; font-weight: 800; font-size: 13.5px; opacity: .75; }
+textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-color: #1D3447; font-size: 17px; }
+.bf-note-count-line { margin: 4px 0 0; text-align: right; }
+.bf-color-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.bf-color-btn {
+  width: 38px; height: 38px; padding: 0; border: 2px solid #1D3447; border-radius: 50%; cursor: pointer;
+}
+.bf-color-btn.is-on { box-shadow: 0 0 0 3px var(--bf-card), 0 0 0 5.5px var(--bf-ink); }
+.bf-color-btn:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 4px; }
+.bf-nom-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.bf-nom-main .bf-nom-name { flex: 0 1 auto; }
+.bf-nom-who { font-size: 13px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -855,7 +906,7 @@ select.bf-field {
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v19';
+var BF_VERSION = 'bf-v20';
 
 var BF = {
   sb: null,
@@ -7129,6 +7180,402 @@ BF.swipeCandidates = function () {
     var d = o.dish_id != null ? BF.findDish(o.dish_id) : null;
     return !d || d.kind !== 'ingredient';
   });
+};
+
+/* ===================== batch K: sticky notes, who reacted on the board, who did it in History ===================== */
+
+/* ---------- note colours: one per member, picked in Settings (bf_members.note_color) ---------- */
+BF.NOTE_COLORS = [['pink', 'Pink'], ['purple', 'Purple'], ['blue', 'Blue'], ['mint', 'Mint'], ['yellow', 'Yellow'], ['peach', 'Peach'], ['coral', 'Coral'], ['grey', 'Grey']];
+BF.NOTE_DEFAULT = ['pink', 'blue', 'purple'];
+
+/* Members now carry note_color. If that column isn't there yet, fall back to the old select. */
+BF.fetchMembers = async function (session) {
+  var res;
+  try {
+    res = await BF.sb.from('bf_members').select('email, display_name, emoji, note_color');
+    if (res.error && !BF.isNetworkError(res.error, res.status) && /note_color/i.test(String(res.error.message || ''))) {
+      res = await BF.sb.from('bf_members').select('email, display_name, emoji');
+    }
+  } catch (e) {
+    return { status: 'offline' };
+  }
+  if (res.error) {
+    if (BF.isNetworkError(res.error, res.status)) return { status: 'offline' };
+    return { status: 'notmember' };
+  }
+  var rows = res.data || [];
+  var email = String((session.user && session.user.email) || '').toLowerCase();
+  var me = null;
+  rows.forEach(function (r) {
+    if (!me && email && String(r.email || '').toLowerCase() === email) me = r;
+  });
+  if (!me) return { status: 'notmember' };
+  return { status: 'ok', me: me, rows: rows };
+};
+
+BF.isNoteColor = function (c) { return BF.NOTE_COLORS.some(function (x) { return x[0] === c; }); };
+BF.colorOf = function (m) {
+  if (m && BF.isNoteColor(m.note_color)) return m.note_color;
+  var i = (BF.members || []).indexOf(m);
+  return BF.NOTE_DEFAULT[(i < 0 ? 0 : i) % BF.NOTE_DEFAULT.length];
+};
+BF.whoEmoji = function (email) {
+  var m = BF.memberByEmail(email);
+  if (!m) return '';
+  return m.emoji || BF.firstChar(m.display_name || m.email);
+};
+
+/* Settings -> Edit: a colour row under the emoji grid. */
+BF._pickColor = null;
+var _bfOpenProfileK = BF.openProfile;
+BF.openProfile = function () {
+  _bfOpenProfileK.apply(this, arguments);
+  var me = BF.me;
+  var body = BF.$('bf-sheet-body');
+  if (!me || !body) return;
+  BF._pickColor = BF.colorOf(me);
+  var fs = BF.el('fieldset', 'bf-fieldset');
+  fs.appendChild(BF.el('legend', 'bf-label', 'Your sticky-note colour'));
+  var row = BF.el('div', 'bf-color-row');
+  var btns = [];
+  var sync = function () {
+    btns.forEach(function (b) {
+      var on = b._val === BF._pickColor;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  };
+  BF.NOTE_COLORS.forEach(function (c) {
+    var b = BF.el('button', 'bf-color-btn bf-sticky-' + c[0]);
+    b.type = 'button';
+    b._val = c[0];
+    b.setAttribute('aria-label', c[1]);
+    b.addEventListener('click', function () { BF._pickColor = c[0]; sync(); });
+    btns.push(b);
+    row.appendChild(b);
+  });
+  sync();
+  fs.appendChild(row);
+  var form = body.querySelector('.bf-form');
+  if (form) form.appendChild(fs); else body.appendChild(fs);
+};
+
+/* Same as batch H's save, plus the colour. */
+BF.saveProfile = async function (name, emoji, btn) {
+  var me = BF.me;
+  if (!me) return;
+  btn.disabled = true;
+  btn.textContent = 'Saving\u2026';
+  var patch = { display_name: name, emoji: emoji };
+  if (BF.isNoteColor(BF._pickColor)) patch.note_color = BF._pickColor;
+  var rows = null, failed = false;
+  try {
+    rows = BF.q(await BF.sb.from('bf_members').update(patch).eq('email', me.email).select('email'));
+  } catch (e) {
+    console.warn('profile save failed', e);
+    failed = true;
+  }
+  if (failed || !rows || !rows.length) {
+    btn.disabled = false;
+    btn.textContent = 'Save';
+    BF.toast(failed ? BF.SAVE_FAIL : 'Not allowed yet \u2013 ask Iris to run the profile SQL');
+    return;
+  }
+  var res = await BF.fetchMembers(BF.session);
+  if (res && res.status === 'ok') {
+    BF.me = res.me;
+    BF.members = res.rows;
+    BF.renderAvatars();
+  }
+  BF.openSettings();
+  BF.toast('Saved');
+  BF.renderNotes();
+};
+
+/* ---------- sticky notes: data ---------- */
+BF.notes = { rows: [], loaded: false };
+BF.NOTE_MAX = 140;
+BF.NOTES_SHOWN = 6;
+BF._notesSeq = 0;
+
+BF.loadNotes = async function () {
+  if (!BF.sb) return;
+  var seq = ++BF._notesSeq;
+  var r;
+  try {
+    r = await BF.sb.from('bf_notes').select('*').order('created_at', { ascending: false }).limit(200);
+  } catch (e) {
+    console.warn('notes load failed', e);
+    return;
+  }
+  if (seq !== BF._notesSeq) return;
+  if (r.error) { console.warn('notes load failed', r.error); return; }
+  BF.notes.rows = r.data || [];
+  BF.notes.loaded = true;
+  BF.renderNotes();
+};
+
+var _bfLoadDataK = BF.loadData;
+BF.loadData = function () {
+  return Promise.all([_bfLoadDataK.apply(this, arguments), BF.loadNotes()]);
+};
+
+BF.findNote = function (id) {
+  return BF.notes.rows.filter(function (n) { return String(n.id) === String(id); })[0] || null;
+};
+
+/* Realtime: a new, edited or removed note shows on every phone. */
+BF.notesListen = function () {
+  if (!BF.sb || typeof BF.sb.channel !== 'function' || BF._notesCh) return;
+  var kick = function () {
+    clearTimeout(BF._notesTimer);
+    BF._notesTimer = setTimeout(function () { if (BF.screen === 'app') BF.loadNotes(); }, 250);
+  };
+  var ch = BF.sb.channel('bf-notes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'bf_notes' }, kick);
+  BF._notesCh = ch;
+  ch.subscribe(function (status) {
+    if (ch !== BF._notesCh) return;
+    if (status === 'SUBSCRIBED') { kick(); return; }
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      console.warn('notes realtime', status);
+      BF._notesCh = null;
+      try { BF.sb.removeChannel(ch); } catch (e) { /* ignore */ }
+    }
+  });
+};
+var _bfBootK = BF.boot;
+BF.boot = async function () {
+  await _bfBootK.apply(this, arguments);
+  if (BF.screen === 'app') BF.notesListen();
+};
+
+/* The longest Library dish (not Pantry) whose name is in the note, e.g. "craving mohinga" -> Mohinga. */
+BF.noteDish = function (n) {
+  var text = BF.lc2(n && n.body);
+  if (!text) return null;
+  var best = null;
+  BF.lib.dishes.forEach(function (d) {
+    var k = BF.lc2(d.name);
+    if (!k || d.kind === 'ingredient' || text.indexOf(k) < 0) return;
+    if (!best || k.length > BF.lc2(best.name).length) best = d;
+  });
+  return best;
+};
+
+/* ---------- sticky notes: UI ---------- */
+BF.stickyTile = function (n) {
+  var who = BF.memberByEmail(n.created_by);
+  var t = BF.el('button', 'bf-sticky bf-sticky-' + BF.colorOf(who));
+  t.type = 'button';
+  t.appendChild(BF.el('span', 'bf-sticky-text', String(n.body == null ? '' : n.body)));
+  var e = BF.whoEmoji(n.created_by);
+  if (e) t.appendChild(BF.el('span', 'bf-sticky-who', e));
+  t.setAttribute('aria-label', 'Note' + (who ? ' from ' + (who.display_name || who.email) : '') + ': ' + String(n.body == null ? '' : n.body));
+  t.addEventListener('click', function () { BF.openNote(n.id); });
+  return t;
+};
+
+BF.renderNotes = function () {
+  var body = BF.$('bf-tab-boss-body');
+  if (!body) return;
+  if (!BF.notesUI) {
+    body.classList.add('bf-stack');
+    var card = BF.el('section', 'bf-card bf-notes-card');
+    card.setAttribute('aria-label', 'Sticky notes');
+    var head = BF.el('div', 'bf-notes-head');
+    head.appendChild(BF.el('h2', 'bf-notes-title', 'Sticky notes'));
+    head.appendChild(BF.button('+ Note', 'bf-btn-gold bf-btn-sm', function () { BF.openNoteEditor(null); }, 'Add a sticky note'));
+    card.appendChild(head);
+    var grid = BF.el('div', 'bf-notes-grid');
+    card.appendChild(grid);
+    var empty = BF.el('p', 'bf-notes-empty', 'Nothing on the fridge door yet. Stick a note \u2013 a craving, a reminder, anything.');
+    card.appendChild(empty);
+    var more = BF.button('', 'bf-btn-ghost bf-btn-sm bf-notes-more', function () { BF.openAllNotes(); });
+    card.appendChild(more);
+    body.insertBefore(card, body.firstChild);
+    BF.notesUI = { card: card, grid: grid, empty: empty, more: more };
+  }
+  var ui = BF.notesUI;
+  ui.card.hidden = !BF.notes.loaded;
+  var rows = BF.notes.rows;
+  ui.grid.replaceChildren();
+  rows.slice(0, BF.NOTES_SHOWN).forEach(function (n) { ui.grid.appendChild(BF.stickyTile(n)); });
+  ui.grid.hidden = !rows.length;
+  ui.empty.hidden = rows.length > 0;
+  ui.more.hidden = rows.length <= BF.NOTES_SHOWN;
+  ui.more.textContent = 'See all ' + rows.length;
+};
+
+BF.openAllNotes = function () {
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'All sticky notes'));
+    var grid = BF.el('div', 'bf-notes-grid');
+    BF.notes.rows.forEach(function (n) { grid.appendChild(BF.stickyTile(n)); });
+    box.appendChild(grid);
+  });
+};
+
+BF.openNote = function (id) {
+  var n = BF.findNote(id);
+  if (!n) return;
+  var who = BF.memberByEmail(n.created_by);
+  BF.openSheet(function (box) {
+    var big = BF.el('div', 'bf-sticky bf-sticky-big bf-sticky-' + BF.colorOf(who));
+    big.appendChild(BF.el('p', 'bf-sticky-full', String(n.body == null ? '' : n.body)));
+    var by = [];
+    if (who) by.push((who.emoji ? who.emoji + ' ' : '') + (who.display_name || who.email));
+    var ago = BF.ago(n.created_at);
+    if (ago) by.push(ago);
+    big.appendChild(BF.el('p', 'bf-sticky-by', by.join(' \u00B7 ')));
+    box.appendChild(big);
+    var acts = BF.el('div', 'bf-act-list');
+    var d = BF.noteDish(n);
+    if (d) {
+      var on = BF.board.loaded && BF.boardFor(BF.addDays(1)).some(function (r) { return BF.sameName(r.label, d.name); });
+      var nb = BF.button(on ? d.name + ' is up for tomorrow' : '\u2192 Tomorrow: ' + d.name, 'bf-btn-primary bf-btn-wide', function () {
+        BF.closeSheet();
+        BF.nominate({ value: String(d.name), focus: function () {} }, null);
+      });
+      nb.disabled = on;
+      acts.appendChild(nb);
+    }
+    var row = BF.el('div', 'bf-sheet-acts');
+    row.appendChild(BF.button('Edit', '', function () { BF.openNoteEditor(n.id); }));
+    row.appendChild(BF.button('Delete', 'bf-btn-ghost', function () { BF.closeSheet(); BF.deleteNote(n.id); }));
+    acts.appendChild(row);
+    box.appendChild(acts);
+  });
+};
+
+BF.openNoteEditor = function (id) {
+  var old = id == null ? null : BF.findNote(id);
+  if (id != null && !old) return;
+  var mine = BF.me;
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', old ? 'Edit note' : 'New sticky note'));
+    var form = BF.el('div', 'bf-form');
+    var ta = BF.input({ tag: 'textarea', placeholder: 'Craving mohinga \uD83E\uDD24', value: old ? String(old.body == null ? '' : old.body) : '' });
+    ta.rows = 3;
+    ta.maxLength = BF.NOTE_MAX;
+    ta.classList.add('bf-sticky-input', 'bf-sticky-' + BF.colorOf(old ? BF.memberByEmail(old.created_by) : mine));
+    var wrap = BF.labelled('Note', ta, true);
+    var count = BF.el('p', 'bf-hint bf-note-count-line', '');
+    wrap.appendChild(count);
+    form.appendChild(wrap);
+    var save = BF.button(old ? 'Save' : 'Stick it', 'bf-btn-gold bf-btn-wide');
+    var sync = function () {
+      var n = ta.value.trim().length;
+      count.textContent = ta.value.length + ' / ' + BF.NOTE_MAX;
+      save.disabled = n === 0;
+    };
+    ta.addEventListener('input', sync);
+    sync();
+    save.addEventListener('click', async function () {
+      var text = ta.value.trim().slice(0, BF.NOTE_MAX);
+      if (!text) { BF.shake(ta); ta.focus(); return; }
+      var ok = await BF.sheetSave(save, async function () {
+        if (old) BF.q(await BF.sb.from('bf_notes').update({ body: text }).eq('id', old.id));
+        else BF.q(await BF.sb.from('bf_notes').insert({ body: text }));
+        await BF.loadNotes();
+      });
+      if (ok) BF.toast(old ? 'Note saved' : 'Stuck on the fridge');
+    });
+    form.appendChild(save);
+    box.appendChild(form);
+    setTimeout(function () { try { ta.focus(); } catch (e) { /* ignore */ } }, 50);
+  });
+};
+
+BF.deleteNote = async function (id) {
+  var old = BF.findNote(id);
+  if (!old) return;
+  BF.notes.rows = BF.notes.rows.filter(function (n) { return n !== old; });
+  BF.renderNotes();
+  var ok = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_notes').delete().eq('id', id));
+  });
+  if (ok === false) { BF.loadNotes(); return; }
+  BF.toast('Note removed', function () {
+    BF.run(async function () {
+      var row = {};
+      BF.COLUMNS.bf_notes.forEach(function (c) { if (old[c] !== undefined) row[c] = old[c]; });
+      BF.q(await BF.sb.from('bf_notes').insert(row));
+    });
+  });
+};
+
+/* ---------- sticky notes in Export / Import / Clear all ---------- */
+BF.BACKUP.push({ label: 'Sticky notes', short: 'notes', slug: 'notes', tables: ['bf_notes'] });
+BF.COLUMNS.bf_notes = ['id', 'body', 'created_by', 'created_at'];
+BF.WRITE_ORDER.push('bf_notes');
+BF.DELETE_ORDER = BF.WRITE_ORDER.slice().reverse();
+
+var _bfRowProblemK = BF.rowProblem;
+BF.rowProblem = function (t, r) {
+  if (t === 'bf_notes') {
+    if (typeof r.body !== 'string' || !r.body.trim()) return 'empty note';
+    r.body = r.body.trim().slice(0, BF.NOTE_MAX);
+    return null;
+  }
+  return _bfRowProblemK.apply(this, arguments);
+};
+
+/* ---------- Tomorrow board: who reacted, under the name ---------- */
+BF.boardWho = function (boardId) {
+  var vs = BF.votesFor(boardId);
+  var parts = [];
+  BF.BOARD_EMOJI.forEach(function (e) {
+    var who = vs.filter(function (v) { return v.emoji === e; }).map(function (v) { return BF.whoEmoji(v.email) || '?'; });
+    if (who.length) parts.push(e + ' ' + who.join(''));
+  });
+  return parts.join('   ');
+};
+BF.boardWhoLabel = function (boardId) {
+  var vs = BF.votesFor(boardId);
+  return vs.map(function (v) {
+    var m = BF.memberByEmail(v.email);
+    var i = BF.BOARD_EMOJI.indexOf(v.emoji);
+    return (m ? (m.display_name || m.email) : 'Someone') + ' ' + (i >= 0 ? BF.BOARD_EMOJI_NAME[i] : v.emoji);
+  }).join(', ');
+};
+
+var _bfNomRowK = BF.nomRow;
+BF.nomRow = function (row) {
+  var el = _bfNomRowK.apply(this, arguments);
+  var pile = el.querySelector('.bf-nom-pile');
+  var name = el.querySelector('.bf-nom-name');
+  if (pile) pile.remove();
+  if (!name) return el;
+  var main = BF.el('div', 'bf-nom-main');
+  el.insertBefore(main, name);
+  main.appendChild(name);
+  var who = BF.boardWho(row.id);
+  if (who) {
+    var w = BF.el('span', 'bf-nom-who', who);
+    w.setAttribute('aria-label', 'Reactions: ' + BF.boardWhoLabel(row.id));
+    main.appendChild(w);
+  }
+  return el;
+};
+
+/* ---------- History: who did it, as their emoji ---------- */
+var _bfHistoryRowK = BF.historyRow;
+BF.historyRow = function (h) {
+  var row = _bfHistoryRowK.apply(this, arguments);
+  var e = BF.whoEmoji(h && h.done_by);
+  var meta = row.querySelector('.bf-meta');
+  if (e && meta) meta.textContent = e + ' ' + meta.textContent;
+  return row;
+};
+
+/* A toast already showing moves to the top when a sheet opens, so it never covers the sheet's buttons. */
+var _bfOpenSheetK = BF.openSheet;
+BF.openSheet = function () {
+  var out = _bfOpenSheetK.apply(this, arguments);
+  var layer = BF.$('bf-toast-layer');
+  if (layer) layer.classList.add('is-top');
+  return out;
 };
 
 BF.init();
