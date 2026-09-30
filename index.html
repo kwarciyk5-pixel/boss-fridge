@@ -442,6 +442,47 @@ select.bf-field {
   background-size: 6px 6px; background-repeat: no-repeat;
 }
 
+/* ---------- batch C2: compact sizes (about 15% smaller; inputs stay 16px so iPhone doesn't zoom) ---------- */
+.bf-header-inner { height: 56px; }
+.bf-title { font-size: 20px; }
+.bf-logo { width: 26px; height: auto; }
+.bf-avatar { width: 30px; height: 30px; font-size: 15px; }
+.bf-main { padding: 4px 14px 92px; padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+.bf-panel { gap: 12px; }
+.bf-stack { gap: 10px; }
+.bf-card { padding: 14px; border-radius: 16px; }
+.bf-rows { padding: 0 12px; }
+.bf-row { min-height: 50px; padding: 6px 0; gap: 8px; }
+.bf-textbtn { min-height: 38px; font-size: 15px; }
+.bf-meta { font-size: 12px; margin-top: -6px; }
+.bf-tag { height: 20px; padding: 0 8px; font-size: 10px; }
+.bf-tag-ing { font-size: 11px; }
+.bf-btn { min-height: 40px; padding: 0 14px; font-size: 15px; border-radius: 12px; }
+.bf-btn-sm { padding: 0 10px; font-size: 13px; min-height: 36px; }
+.bf-btn-xs { font-size: 11px; }
+.bf-pill { min-height: 36px; padding: 0 12px; font-size: 14px; }
+.bf-toolbar { gap: 8px; }
+.bf-toolbar .bf-btn { min-height: 44px; }
+.bf-square { width: 44px; min-width: 44px; height: 44px; font-size: 24px; }
+.bf-field { min-height: 44px; }
+.bf-group { gap: 6px; }
+.bf-group-title { font-size: 16px; }
+.bf-star { width: 36px; height: 40px; min-width: 36px; font-size: 22px; }
+.bf-nav { height: 60px; padding: 4px; bottom: calc(10px + env(safe-area-inset-bottom)); border-radius: 20px; }
+.bf-nav-btn svg { width: 20px; height: 20px; }
+.bf-nav-label { font-size: 10px; }
+.bf-toast-layer { bottom: calc(80px + env(safe-area-inset-bottom)); }
+.bf-toast { min-height: 42px; font-size: 14px; padding: 4px 4px 4px 16px; }
+.bf-sheet { padding: 8px 16px calc(20px + env(safe-area-inset-bottom)); }
+.bf-sheet-grip { margin-bottom: 10px; }
+.bf-sheet-title { font-size: 20px; }
+.bf-form { gap: 12px; }
+.bf-label { font-size: 13px; margin-bottom: 4px; }
+.bf-check { min-height: 42px; }
+.bf-hero .bf-mascot { width: 104px; }
+.bf-bubble { font-size: 15px; }
+.bf-soon { font-size: 15px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -579,7 +620,7 @@ select.bf-field {
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v7';
+var BF_VERSION = 'bf-v8';
 
 var BF = {
   sb: null,
@@ -3688,6 +3729,50 @@ BF.historyRow = function (h) {
     row.appendChild(acts);
   }
   return row;
+};
+
+/* ===================== batch C2: library "had ..." + History button, Ready by name ===================== */
+
+/* "had today" / "had yesterday" / "had 3 days ago", or '' if never eaten. */
+BF.hadText = function (d) {
+  var n = BF.daysSince(BF.lastHad(d));
+  if (n == null) return '';
+  if (n <= 0) return 'had today';
+  if (n === 1) return 'had yesterday';
+  return 'had ' + n + ' days ago';
+};
+
+var _bfDishRowC = BF.dishRow;
+BF.dishRow = function (d) {
+  var row = _bfDishRowC.apply(this, arguments);
+  var had = BF.hadText(d);
+  if (had) {
+    var main = row.querySelector('.bf-row-main');
+    var meta = main.querySelector('.bf-meta');
+    if (meta) meta.textContent = meta.textContent + ' \u00b7 ' + had;
+    else main.insertBefore(BF.el('div', 'bf-meta', had), main.children[1] || null);
+  }
+  return row;
+};
+
+var _bfBuildLibraryC = BF.buildLibraryUI;
+BF.buildLibraryUI = function () {
+  var ui = _bfBuildLibraryC.apply(this, arguments);
+  var body = BF.$('bf-tab-library-body');
+  var row = BF.el('div', 'bf-linkrow');
+  row.appendChild(BF.historyButton());
+  var filters = ui.fbtns.length ? ui.fbtns[0].parentNode : ui.list;
+  body.insertBefore(row, filters);
+  return ui;
+};
+
+/* Ready: linked to a ready dish, or unlinked with the same name as a ready dish. */
+BF.dishIsReady = function (it) {
+  if (it.dish_id != null) {
+    var d = BF.findDish(it.dish_id);
+    return !!d && d.kind === 'ready';
+  }
+  return BF.lib.dishes.some(function (x) { return x.kind === 'ready' && BF.sameName(x.name, it.name); });
 };
 
 BF.init();
