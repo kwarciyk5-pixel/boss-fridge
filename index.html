@@ -520,6 +520,28 @@ select.bf-field {
 .bf-list-save .bf-field { flex: 1 1 auto; min-width: 0; }
 .bf-list-save .bf-btn { flex: 0 0 auto; white-space: nowrap; min-height: 44px; }
 
+/* ---------- batch E: wheel Fridge options + Tomorrow board + Boss front-runner ---------- */
+.bf-wheel-fridge { gap: 8px; }
+.bf-board-card { display: flex; flex-direction: column; gap: 10px; }
+.bf-noms { display: flex; flex-direction: column; }
+.bf-nom { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-top: 2px dashed var(--bf-line); }
+.bf-nom:first-child { border-top: 0; padding-top: 2px; }
+.bf-nom-head { display: flex; align-items: center; gap: 8px; }
+.bf-nom-name { flex: 1 1 auto; min-width: 0; margin: 0; font-weight: 900; font-size: 16px; line-height: 1.25; overflow-wrap: anywhere; }
+.bf-nom-head .bf-textbtn { width: auto; min-height: 36px; font-size: 16px; }
+.bf-nom-x { flex: 0 0 auto; min-width: 36px; font-size: 20px; line-height: 1; }
+.bf-nom-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bf-react { min-width: 44px; min-height: 38px; padding: 0 8px; font-size: 19px; line-height: 1; }
+.bf-react.is-on { background: var(--bf-goldsoft); color: var(--bf-ink); box-shadow: inset 0 0 0 2px var(--bf-gold); }
+.bf-nom-pile { margin-left: 4px; font-size: 18px; letter-spacing: 1px; line-height: 1; }
+.bf-tag-lead { background: var(--bf-goldsoft); box-shadow: inset 0 0 0 1.5px var(--bf-gold); }
+.bf-noms-empty { color: var(--bf-muted); }
+.bf-front { display: flex; flex-direction: column; gap: 10px; background: var(--bf-goldsoft); }
+.bf-front-line { display: flex; flex-direction: column; gap: 2px; }
+.bf-front-name { margin: 0; font-family: var(--bf-font-head); font-size: 22px; font-weight: 700; overflow-wrap: anywhere; }
+.bf-front-none { margin: 0; font-weight: 800; color: var(--bf-muted); }
+.bf-front .bf-sheet-acts { margin-top: 2px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -656,7 +678,7 @@ select.bf-field {
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v9';
+var BF_VERSION = 'bf-v10';
 
 var BF = {
   sb: null,
@@ -4200,6 +4222,408 @@ BF.deleteWheelList = async function (id) {
       if (r !== false) { BF.wheel.listId = old.id; BF.renderPlay(); }
     });
   });
+};
+
+/* ===================== batch E: wheel Fridge source (all items, Ready only, location) + Tomorrow board ===================== */
+
+/* ---------- wheel: Fridge source = every item; "Ready only" toggle and a location pill ---------- */
+BF.WHEEL_LOCS = [['all', 'All'], ['fridge', 'Fridge'], ['freezer', 'Freezer'], ['storage', 'Storage']];
+BF.wheel.readyOnly = false;
+BF.wheel.loc = 'all';
+
+var _bfWheelOptionsD = BF.wheelOptions;
+BF.wheelOptions = function () {
+  var w = BF.wheel;
+  if (w.source !== 'fridge') return _bfWheelOptionsD.apply(this, arguments);
+  var out = [];
+  BF.data.items.forEach(function (it) {
+    var loc = it.location || 'fridge';                       // no location = Fridge, as on the Fridge tab
+    if (w.loc !== 'all' && loc !== w.loc) return;
+    if (w.readyOnly && !(it.ready || BF.dishIsReady(it))) return;
+    var label = String(it.name == null ? '' : it.name).trim();
+    if (!label || out.some(function (x) { return BF.sameName(x.label, label); })) return;
+    out.push({ label: label, kind: 'item', id: it.id });
+  });
+  return out;
+};
+
+var _bfBuildPlayD = BF.buildPlayUI;
+BF.buildPlayUI = function () {
+  var ui = _bfBuildPlayD.apply(this, arguments);
+  var fridgeOpts = BF.el('div', 'bf-form bf-wheel-fridge');
+  var locRow = BF.el('div', 'bf-pills bf-pills-line');
+  locRow.setAttribute('role', 'group');
+  locRow.setAttribute('aria-label', 'Where');
+  var locBtns = BF.WHEEL_LOCS.map(function (l) {
+    var b = BF.el('button', 'bf-pill', l[1]);
+    b.type = 'button';
+    b._val = l[0];
+    b.addEventListener('click', function () {
+      if (BF.wheel.spinning) return;
+      BF.wheel.loc = l[0];
+      BF.wheel.result = null;
+      BF.renderPlay();
+    });
+    locRow.appendChild(b);
+    return b;
+  });
+  fridgeOpts.appendChild(locRow);
+  var readyRow = BF.el('div', 'bf-pills');
+  readyRow.appendChild(BF.togglePill('Ready only', function () { return BF.wheel.readyOnly; }, function (v) {
+    BF.wheel.readyOnly = v;
+    BF.wheel.result = null;
+    BF.renderPlay();
+  }));
+  fridgeOpts.appendChild(readyRow);
+  ui.libOpts.parentNode.insertBefore(fridgeOpts, ui.libOpts);
+  ui.fridgeOpts = fridgeOpts;
+  ui.locBtns = locBtns;
+
+  // Tomorrow board card, under the wheel result
+  ui.board = BF.buildBoardUI();
+  ui.result.parentNode.appendChild(ui.board.card);
+  return ui;
+};
+
+var _bfRenderPlayD = BF.renderPlay;
+BF.renderPlay = function () {
+  _bfRenderPlayD.apply(this, arguments);
+  var ui = BF.playUI;
+  if (!ui || !ui.fridgeOpts) return;
+  var w = BF.wheel;
+  ui.fridgeOpts.hidden = w.source !== 'fridge';
+  ui.locBtns.forEach(function (b) {
+    var on = b._val === w.loc;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.disabled = w.spinning;
+  });
+  if (w.source === 'fridge' && !ui.empty.hidden) {
+    ui.empty.textContent = w.readyOnly
+      ? 'Nothing ready to heat here. Mark food Ready to heat, or turn off Ready only.'
+      : 'Need at least 2 things here. Add food on the Fridge tab.';
+  }
+  BF.renderBoard();
+};
+
+/* ---------- Tomorrow board: state and load ---------- */
+BF.BOARD_EMOJI = ['\uD83D\uDE0B', '\uD83D\uDC4D', '\uD83D\uDC4E'];   // yum, fine, rather not (no veto)
+BF.BOARD_EMOJI_NAME = ['Yum', 'Fine by me', 'Rather not'];
+BF.BOARD_SCORE = [1, 1, -1];
+BF.board = { rows: [], votes: [], loaded: false };
+BF._boardSeq = 0;
+
+BF.loadBoard = async function () {
+  if (!BF.sb) return;
+  var seq = ++BF._boardSeq;
+  var rows, votes = [];
+  try {
+    rows = BF.q(await BF.sb.from('bf_board').select('*').gte('for_date', BF.today()).order('created_at', { ascending: true }));
+    var ids = (rows || []).map(function (r) { return r.id; });
+    if (ids.length) votes = BF.q(await BF.sb.from('bf_board_votes').select('*').in('board_id', ids));
+  } catch (e) {
+    console.warn('board load failed', e);
+    return;
+  }
+  if (seq !== BF._boardSeq) return;
+  BF.board.rows = rows || [];
+  BF.board.votes = votes || [];
+  BF.board.loaded = true;
+  BF.board.fresh = true;
+};
+
+var _bfLoadDataE = BF.loadData;
+BF.loadData = function () {
+  return Promise.all([_bfLoadDataE.apply(this, arguments), BF.loadBoard()]).then(function () {
+    BF.renderBoard();
+  });
+};
+
+/* Reload only the board (after a board write or a realtime event). */
+BF.refreshBoard = function () {
+  return BF.loadBoard().then(function () { BF.renderBoard(); });
+};
+
+/* Board writes: failure -> toast; always re-read the board. Resolves to fn's result, or false. */
+BF.boardRun = async function (fn) {
+  var out;
+  try {
+    out = await fn();
+  } catch (e) {
+    console.warn('board write failed', e);
+    BF.toast(BF.SAVE_FAIL);
+    await BF.refreshBoard();
+    return false;
+  }
+  await BF.refreshBoard();
+  return out === undefined ? true : out;
+};
+
+/* ---------- Tomorrow board: helpers ---------- */
+BF.votesFor = function (boardId) {
+  return BF.board.votes.filter(function (v) { return String(v.board_id) === String(boardId); });
+};
+BF.myVote = function (boardId) {
+  var me = String(BF.myEmail() || '').toLowerCase();
+  return BF.votesFor(boardId).filter(function (v) { return String(v.email || '').toLowerCase() === me; })[0] || null;
+};
+BF.boardScore = function (row) {
+  return BF.votesFor(row.id).reduce(function (s, v) {
+    var i = BF.BOARD_EMOJI.indexOf(v.emoji);
+    return s + (i < 0 ? 0 : BF.BOARD_SCORE[i]);
+  }, 0);
+};
+BF.boardFor = function (ymd) {
+  return BF.board.rows.filter(function (r) { return String(r.for_date).slice(0, 10) === ymd; });
+};
+/* Highest (yum + fine - rather not); a tie goes to the earliest nomination. */
+BF.frontRunner = function (ymd) {
+  var best = null, bestScore = 0;
+  BF.boardFor(ymd).forEach(function (r) {
+    var s = BF.boardScore(r);
+    if (!best || s > bestScore) { best = r; bestScore = s; }
+  });
+  return best;
+};
+BF.boardPile = function (boardId) {
+  var vs = BF.votesFor(boardId);
+  var out = '';
+  BF.BOARD_EMOJI.forEach(function (e) {
+    vs.forEach(function (v) { if (v.emoji === e) out += e; });
+  });
+  return out;
+};
+BF.boardDish = function (row) {
+  return (row.dish_id != null && BF.findDish(row.dish_id)) || null;
+};
+
+/* ---------- Tomorrow board: actions ---------- */
+BF.nominate = async function (field, btn) {
+  var name = field.value.trim();
+  if (!name) { BF.shake(field); field.focus(); return; }
+  var day = BF.addDays(1);
+  var dup = BF.boardFor(day).filter(function (r) { return BF.sameName(r.label, name); })[0];
+  if (dup) { BF.toast(dup.label + ' is already on the board'); return; }
+  var dish = BF.dishByName(name);
+  var row = { for_date: day, label: dish ? String(dish.name).trim() : name, dish_id: dish ? dish.id : null };
+  if (btn) btn.disabled = true;
+  var ok = await BF.boardRun(async function () {
+    BF.q(await BF.sb.from('bf_board').insert(row));
+  });
+  if (btn) btn.disabled = false;
+  if (ok === false) return;
+  field.value = '';
+  BF.toast(row.label + ' is up for tomorrow');
+};
+
+BF.react = async function (row, emoji) {
+  var me = BF.myEmail();
+  if (!me) return;
+  var mine = BF.myVote(row.id);
+  var removing = !!(mine && mine.emoji === emoji);
+  // Show it straight away; the re-read afterwards makes it true.
+  var before = BF.board.votes.slice();
+  BF.board.fresh = false;
+  BF.board.votes = BF.board.votes.filter(function (v) { return v !== mine; });
+  if (!removing) BF.board.votes.push({ board_id: row.id, email: String(me).toLowerCase(), emoji: emoji });
+  BF.renderBoard();
+  var ok = await BF.boardRun(async function () {
+    if (removing) {
+      BF.q(await BF.sb.from('bf_board_votes').delete().eq('board_id', row.id).eq('email', mine.email));
+    } else {
+      BF.q(await BF.sb.from('bf_board_votes').upsert(
+        { board_id: row.id, email: String(me).toLowerCase(), emoji: emoji },
+        { onConflict: 'board_id,email' }));
+    }
+  });
+  if (ok === false && !BF.board.fresh) {   // save failed and the board couldn't be re-read: undo the optimistic change
+    BF.board.votes = before;
+    BF.renderBoard();
+  }
+};
+
+BF.removeNomination = async function (row) {
+  var old = {};
+  BF.COLUMNS.bf_board.forEach(function (c) { if (row[c] !== undefined) old[c] = row[c]; });
+  var oldVotes = BF.votesFor(row.id).map(function (v) {
+    var o = {};
+    BF.COLUMNS.bf_board_votes.forEach(function (c) { if (v[c] !== undefined) o[c] = v[c]; });
+    return o;
+  });
+  var ok = await BF.boardRun(async function () {
+    BF.q(await BF.sb.from('bf_board').delete().eq('id', row.id));   // votes go with it (on delete cascade)
+  });
+  if (ok === false) return;
+  BF.toast('Removed ' + row.label, function () {
+    BF.boardRun(async function () {
+      if (old.dish_id != null && !BF.findDish(old.dish_id)) old.dish_id = null;
+      BF.q(await BF.sb.from('bf_board').insert(old));
+      if (oldVotes.length) BF.q(await BF.sb.from('bf_board_votes').insert(oldVotes));
+    });
+  });
+};
+
+/* ---------- Tomorrow board: UI (Play tab) ---------- */
+BF.boardSuggest = function () {
+  var dl = BF.$('bf-board-suggest');
+  if (!dl) {
+    dl = document.createElement('datalist');
+    dl.id = 'bf-board-suggest';
+    document.body.appendChild(dl);
+  }
+  var names = BF.lib.dishes.map(function (d) { return String(d.name == null ? '' : d.name).trim(); }).filter(Boolean).sort(function (a, b) { return a.localeCompare(b); });
+  var sig = names.join('\n');
+  if (dl._sig === sig) return;
+  dl._sig = sig;
+  dl.replaceChildren();
+  names.forEach(function (n) {
+    var o = document.createElement('option');
+    o.value = n;
+    dl.appendChild(o);
+  });
+};
+
+BF.buildBoardUI = function () {
+  var card = BF.el('section', 'bf-card bf-board-card');
+  card.id = 'bf-board';
+  card.appendChild(BF.el('h2', 'bf-spin-title', 'Tomorrow board'));
+  card.appendChild(BF.el('p', 'bf-hint', 'What might we eat tomorrow? Nobody is held to it.'));
+  var add = BF.el('div', 'bf-list-save');
+  var field = BF.input({ placeholder: 'A dish, or anything' });
+  field.setAttribute('list', 'bf-board-suggest');
+  var fwrap = BF.labelled('Nominate for tomorrow', field, true);
+  fwrap.style.flex = '1 1 auto';
+  fwrap.style.minWidth = '0';
+  add.appendChild(fwrap);
+  var addBtn = BF.button('Nominate', 'bf-btn-primary bf-btn-sm', function () { BF.nominate(field, addBtn); });
+  add.appendChild(addBtn);
+  field.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); BF.nominate(field, addBtn); } });
+  card.appendChild(add);
+  var list = BF.el('div', 'bf-noms');
+  card.appendChild(list);
+  return { card: card, field: field, addBtn: addBtn, list: list };
+};
+
+BF.nomRow = function (row, isLead) {
+  var el = BF.el('div', 'bf-nom');
+  var head = BF.el('div', 'bf-nom-head');
+  var dish = BF.boardDish(row);
+  var name = dish
+    ? BF.el('button', 'bf-textbtn bf-nom-name', row.label)
+    : BF.el('p', 'bf-nom-name', row.label);
+  if (dish) {
+    name.type = 'button';
+    name.addEventListener('click', function () { BF.openDishSheet(dish.id); });
+  }
+  head.appendChild(name);
+  head.appendChild(BF.button('\u00D7', 'bf-btn-ghost bf-btn-sm bf-nom-x', function () { BF.removeNomination(row); }, 'Remove ' + row.label));
+  el.appendChild(head);
+  if (isLead) {
+    var tags = BF.el('div', 'bf-tags');
+    tags.appendChild(BF.el('span', 'bf-tag bf-tag-lead', 'Front-runner'));
+    el.appendChild(tags);
+  }
+  var acts = BF.el('div', 'bf-nom-acts');
+  var mine = BF.myVote(row.id);
+  BF.BOARD_EMOJI.forEach(function (e, i) {
+    var on = !!(mine && mine.emoji === e);
+    var b = BF.el('button', 'bf-pill bf-react' + (on ? ' is-on' : ''), e);
+    b.type = 'button';
+    b.setAttribute('aria-label', BF.BOARD_EMOJI_NAME[i]);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.addEventListener('click', function () { BF.react(row, e); });
+    acts.appendChild(b);
+  });
+  var pile = BF.el('span', 'bf-nom-pile', BF.boardPile(row.id));
+  pile.setAttribute('aria-label', 'Reactions');
+  acts.appendChild(pile);
+  el.appendChild(acts);
+  return el;
+};
+
+BF.renderBoard = function () {
+  BF.renderBossBoard();
+  var ui = BF.playUI && BF.playUI.board;
+  if (!ui) return;
+  BF.boardSuggest();
+  ui.list.replaceChildren();
+  if (!BF.board.loaded) return;
+  var day = BF.addDays(1);
+  var rows = BF.boardFor(day);
+  if (!rows.length) {
+    ui.list.appendChild(BF.el('p', 'bf-empty bf-noms-empty', 'Nothing nominated yet. Be the first.'));
+    return;
+  }
+  var lead = BF.frontRunner(day);
+  rows.forEach(function (r) { ui.list.appendChild(BF.nomRow(r, rows.length > 1 && lead && r.id === lead.id)); });
+};
+
+/* ---------- Boss tab: Today's plan / Tomorrow's front-runner ---------- */
+BF.goPlay = function (target) {
+  BF.showTab('play');
+  if (!BF.playUI) BF.renderPlay();
+  var el = target === 'board' ? BF.$('bf-board') : null;
+  if (el) el.scrollIntoView({ block: 'start' });
+};
+
+BF.renderBossBoard = function () {
+  var body = BF.$('bf-tab-boss-body');
+  if (!body) return;
+  var card = BF.$('bf-front');
+  if (!card) {
+    card = BF.el('section', 'bf-card bf-front');
+    card.id = 'bf-front';
+    body.appendChild(card);
+  }
+  card.replaceChildren();
+  card.hidden = !BF.board.loaded;
+  if (!BF.board.loaded) return;
+  var today = BF.frontRunner(BF.today());
+  var next = BF.frontRunner(BF.addDays(1));
+  if (today) {
+    var t = BF.el('div', 'bf-front-line');
+    t.appendChild(BF.el('p', 'bf-result-kicker', 'Today\'s plan'));
+    t.appendChild(BF.el('p', 'bf-front-name', today.label));
+    card.appendChild(t);
+  }
+  var n = BF.el('div', 'bf-front-line');
+  n.appendChild(BF.el('p', 'bf-result-kicker', 'Tomorrow\'s front-runner'));
+  n.appendChild(next ? BF.el('p', 'bf-front-name', next.label) : BF.el('p', 'bf-front-none', 'Nothing nominated yet.'));
+  card.appendChild(n);
+  var acts = BF.el('div', 'bf-sheet-acts');
+  acts.appendChild(BF.button('Tomorrow board', 'bf-btn-primary', function () { BF.goPlay('board'); }));
+  acts.appendChild(BF.button('Spin', 'bf-btn-gold', function () { BF.goPlay('wheel'); }));
+  card.appendChild(acts);
+};
+
+/* ---------- realtime: bf_board + bf_board_votes -> re-read the board ---------- */
+BF._boardCh = null;
+BF._boardTimer = null;
+BF.boardListen = function () {
+  if (!BF.sb || typeof BF.sb.channel !== 'function' || BF._boardCh) return;
+  var kick = function () {
+    clearTimeout(BF._boardTimer);
+    BF._boardTimer = setTimeout(function () { if (BF.screen === 'app') BF.refreshBoard(); }, 250);
+  };
+  var ch = BF.sb.channel('bf-board')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'bf_board' }, kick)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'bf_board_votes' }, kick);
+  BF._boardCh = ch;
+  ch.subscribe(function (status) {
+    if (ch !== BF._boardCh) return;
+    if (status === 'SUBSCRIBED') { kick(); return; }
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      console.warn('board realtime', status);
+      BF._boardCh = null;                       // the next foreground boot subscribes again
+      try { BF.sb.removeChannel(ch); } catch (e) { /* ignore */ }
+    }
+  });
+};
+
+var _bfBootE = BF.boot;
+BF.boot = async function () {
+  await _bfBootE.apply(this, arguments);
+  if (BF.screen === 'app') BF.boardListen();
 };
 
 BF.init();
