@@ -803,6 +803,11 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 .bf-rename-lib { margin-top: 8px; }
 .bf-tidy-group .bf-pill { max-width: 100%; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 
+/* ---------- batch M: notifications ---------- */
+.bf-push-box { display: flex; flex-direction: column; gap: 10px; }
+.bf-push-on { margin: 0; font-weight: 900; font-size: 15px; }
+.bf-push-prefs { margin-top: 2px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -939,7 +944,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v22';
+var BF_VERSION = 'bf-v23';
 
 var BF = {
   sb: null,
@@ -8784,6 +8789,267 @@ BF.unlinkEverything = async function (undo) {
   });
   if (ok) BF.toast('Unlinked');
 };
+
+/* ===================== batch M: notifications (Shop added, Running low) ===================== */
+
+BF.PUSH_FN = 'bf-push';
+BF.push = { key: null, sub: null, state: 'unknown' };
+
+/* Groceries carry "low" (added from Running low) - kept in backups. */
+BF.COLUMNS.bf_groceries.push('low');
+
+/* Members carry their notification choices; older selects are the fallback. */
+var _bfFetchMembersM = BF.fetchMembers;
+BF.fetchMembers = async function (session) {
+  var res;
+  try {
+    res = await BF.sb.from('bf_members').select('email, display_name, emoji, note_color, notify_shop, notify_low');
+  } catch (e) {
+    return _bfFetchMembersM.apply(this, arguments);
+  }
+  if (res.error) return _bfFetchMembersM.apply(this, arguments);
+  var rows = res.data || [];
+  var email = String((session.user && session.user.email) || '').toLowerCase();
+  var me = null;
+  rows.forEach(function (r) {
+    if (!me && email && String(r.email || '').toLowerCase() === email) me = r;
+  });
+  if (!me) return { status: 'notmember' };
+  return { status: 'ok', me: me, rows: rows };
+};
+
+/* Running low (replaces batch B's): an add for something that's in the house is marked low. */
+BF.runningLow = async function (name) {
+  name = String(name == null ? '' : name).trim();
+  if (!name) return;
+  if (BF.onList(name)) {
+    BF.toast(name + ' is already on the list');
+    BF.renderFridge();
+    return;
+  }
+  var low = BF.data.items.some(function (it) { return BF.sameName(it.name, name); });
+  var gid = await BF.run(async function () {
+    var g = BF.q(await BF.sb.from('bf_groceries').insert({ name: name, low: low }).select('id').single());
+    return g ? g.id : null;
+  });
+  if (gid === false) return;
+  BF.toast(name + ' \u2192 shopping list', function () {
+    BF.run(async function () { BF.q(await BF.sb.from('bf_groceries').delete().eq('id', gid)); });
+  });
+};
+
+/* ---------- this phone's push state ---------- */
+BF.pushSupported = function () {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+};
+BF.isStandalone = function () {
+  return !!(window.navigator.standalone || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches));
+};
+BF.isIOS = function () {
+  return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+};
+BF.b64urlBytes = function (s) {
+  var b = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  b += '='.repeat((4 - (b.length % 4)) % 4);
+  var raw = atob(b);
+  var out = new Uint8Array(raw.length);
+  for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+};
+BF.callPush = async function (action) {
+  if (!BF.sb || !BF.sb.functions) throw new Error('no functions client');
+  var r = await BF.sb.functions.invoke(BF.PUSH_FN, { body: { action: action } });
+  if (r.error) throw r.error;
+  return r.data || {};
+};
+BF.loadPushKey = async function () {
+  if (BF.push.key) return BF.push.key;
+  try {
+    var d = await BF.callPush('key');
+    if (d && d.key) BF.push.key = d.key;
+  } catch (e) {
+    console.warn('push key failed', e);
+  }
+  return BF.push.key;
+};
+/* 'unsupported' | 'install' (iPhone, not from the home screen) | 'denied' | 'off' | 'on' */
+BF.pushState = async function () {
+  if (!BF.pushSupported()) return BF.isIOS() && !BF.isStandalone() ? 'install' : 'unsupported';
+  if (Notification.permission === 'denied') return 'denied';
+  try {
+    var reg = await navigator.serviceWorker.ready;
+    var sub = await reg.pushManager.getSubscription();
+    BF.push.sub = sub;
+    return sub && Notification.permission === 'granted' ? 'on' : 'off';
+  } catch (e) {
+    return 'off';
+  }
+};
+
+BF.pushOn = async function (btn) {
+  if (btn) btn.disabled = true;
+  var perm;
+  try {
+    perm = await Notification.requestPermission();      // first thing after the tap (iPhone needs that)
+  } catch (e) {
+    perm = 'default';
+  }
+  if (perm !== 'granted') {
+    BF.toast(perm === 'denied' ? 'Notifications are blocked for Boss Fridge in this phone\'s settings' : 'Not turned on');
+    BF.renderPushBox();
+    return;
+  }
+  try {
+    var key = await BF.loadPushKey();
+    if (!key) throw new Error('no key');
+    var reg = await navigator.serviceWorker.ready;
+    var sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: BF.b64urlBytes(key) });
+    var j = sub.toJSON();
+    BF.q(await BF.sb.from('bf_push_subs').upsert({
+      endpoint: j.endpoint,
+      p256dh: j.keys && j.keys.p256dh,
+      auth: j.keys && j.keys.auth,
+      ua: String(navigator.userAgent || '').slice(0, 200)
+    }, { onConflict: 'endpoint' }));
+    BF.push.sub = sub;
+    BF.toast('Notifications on for this phone');
+  } catch (e) {
+    console.warn('push on failed', e);
+    BF.toast('Couldn\'t turn on notifications \u2013 try again');
+  }
+  BF.renderPushBox();
+};
+
+BF.pushOff = async function (btn) {
+  if (btn) btn.disabled = true;
+  try {
+    var reg = await navigator.serviceWorker.ready;
+    var sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      var ep = sub.endpoint;
+      await sub.unsubscribe();
+      await BF.sb.from('bf_push_subs').delete().eq('endpoint', ep);
+    }
+    BF.push.sub = null;
+    BF.toast('Notifications off for this phone');
+  } catch (e) {
+    console.warn('push off failed', e);
+    BF.toast(BF.SAVE_FAIL);
+  }
+  BF.renderPushBox();
+};
+
+BF.pushTest = async function (btn) {
+  if (btn) btn.disabled = true;
+  try {
+    var d = await BF.callPush('test');
+    BF.toast(d && d.sent ? 'Sent \u2013 it should pop up in a moment' : 'Nothing sent \u2013 turn notifications on first');
+  } catch (e) {
+    console.warn('push test failed', e);
+    BF.toast('Couldn\'t reach the notification sender');
+  }
+  if (btn) btn.disabled = false;
+};
+
+/* My choices (stored on my member row; the database lets me change only mine). */
+BF.setNotify = async function (field, on) {
+  var me = BF.me;
+  if (!me) return false;
+  var patch = {};
+  patch[field] = on;
+  var rows = null;
+  try {
+    rows = BF.q(await BF.sb.from('bf_members').update(patch).eq('email', me.email).select('email'));
+  } catch (e) {
+    console.warn('notify pref failed', e);
+  }
+  if (!rows || !rows.length) { BF.toast(BF.SAVE_FAIL); return false; }
+  me[field] = on;
+  return true;
+};
+
+/* ---------- Settings: Notifications ---------- */
+BF.NOTIFY_TYPES = [['notify_shop', '\uD83D\uDED2 Something added to Shop'], ['notify_low', '\u26A0\uFE0F Running low']];
+
+BF.renderPushBox = async function () {
+  var box = BF.$('bf-push-box');
+  if (!box) return;
+  var state = await BF.pushState();
+  if (!document.contains(box)) return;
+  box.replaceChildren();
+  var line = function (t) { box.appendChild(BF.el('p', 'bf-hint bf-set-tip', t)); };
+  if (state === 'install') {
+    line('On iPhone, notifications work from the home-screen app: open Boss Fridge from its icon, then come back here.');
+  } else if (state === 'unsupported') {
+    line('This browser can\'t show notifications.');
+  } else if (state === 'denied') {
+    line('Notifications are blocked for Boss Fridge. Allow them in the phone\'s Settings \u2192 Notifications, then come back.');
+  } else if (state === 'off') {
+    var on = BF.button('Turn on for this phone', 'bf-btn-primary bf-btn-wide', function () { BF.pushOn(on); });
+    box.appendChild(on);
+    line('You\'ll get only the kinds ticked below. Your own adds never notify you.');
+  } else {
+    var row = BF.el('div', 'bf-sheet-acts');
+    var t = BF.button('Send me a test', '', function () { BF.pushTest(t); });
+    var off = BF.button('Turn off', 'bf-btn-ghost', function () { BF.pushOff(off); });
+    row.appendChild(t);
+    row.appendChild(off);
+    box.appendChild(BF.el('p', 'bf-push-on', '\u2713 On for this phone'));
+    box.appendChild(row);
+  }
+  var me = BF.me || {};
+  var prefs = BF.el('div', 'bf-pills bf-push-prefs');
+  BF.NOTIFY_TYPES.forEach(function (tp) {
+    var pill = BF.togglePill(tp[1], function () { return me[tp[0]] !== false; }, function (v) {
+      me[tp[0]] = v;
+      BF.setNotify(tp[0], v).then(function (ok) {
+        if (!ok) { me[tp[0]] = !v; BF.renderPushBox(); }
+      });
+    });
+    prefs.appendChild(pill);
+  });
+  box.appendChild(prefs);
+};
+
+var _bfOpenSettingsM = BF.openSettings;
+BF.openSettings = function () {
+  _bfOpenSettingsM.apply(this, arguments);
+  var body = BF.$('bf-sheet-body');
+  if (!body) return;
+  var wrap = BF.el('div');
+  wrap.appendChild(BF.setHead('Notifications'));
+  var box = BF.el('div', 'bf-push-box');
+  box.id = 'bf-push-box';
+  wrap.appendChild(box);
+  var danger = body.querySelector('.bf-btn-danger');
+  var anchor = danger ? danger.parentNode : body.querySelector('.bf-set-signout');
+  if (anchor && anchor.parentNode === body) body.insertBefore(wrap, anchor);
+  else body.appendChild(wrap);
+  BF.renderPushBox();
+  BF.loadPushKey();          // fetched now, so the tap on "Turn on" goes straight to the permission prompt
+};
+BF.openAccount = BF.openSettings;
+BF.$('bf-settings-btn').removeEventListener('click', _bfOpenSettingsM);
+BF.$('bf-settings-btn').addEventListener('click', BF.openSettings);
+
+/* ---------- tapping a notification opens Shop ---------- */
+BF._openShopPending = /[?&]tab=shop\b/.test(location.search);
+var _bfBootM = BF.boot;
+BF.boot = async function () {
+  await _bfBootM.apply(this, arguments);
+  if (BF.screen === 'app' && BF._openShopPending) {
+    BF._openShopPending = false;
+    BF.showTab('shop');
+    try { history.replaceState(null, '', location.pathname); } catch (e) { /* ignore */ }
+  }
+};
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', function (e) {
+    var d = e.data || {};
+    if (d.bf === 'open' && /[?&]tab=shop\b/.test(String(d.url || '')) && BF.screen === 'app') BF.showTab('shop');
+  });
+}
 
 BF.init();
 </script>

@@ -1,5 +1,5 @@
 /* Boss Fridge service worker. Bump CACHE_NAME together with BF_VERSION in index.html. */
-const CACHE_NAME = 'bf-v22';
+const CACHE_NAME = 'bf-v23';
 
 const PRECACHE = [
   './',
@@ -59,6 +59,40 @@ self.addEventListener('fetch', (event) => {
         }
         return res;
       });
+    })
+  );
+});
+
+/* ---------- batch M: notifications ---------- */
+self.addEventListener('push', (event) => {
+  let d = {};
+  try {
+    d = event.data ? event.data.json() : {};
+  } catch (e) {
+    d = { body: event.data ? event.data.text() : '' };
+  }
+  event.waitUntil(self.registration.showNotification(d.title || 'Boss Fridge', {
+    body: d.body || '',
+    tag: d.tag || 'bf',
+    renotify: true,
+    icon: './icons/icon-192.png',
+    badge: './icons/icon-192.png',
+    data: { url: d.url || './' }
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL((event.notification.data && event.notification.data.url) || './', self.registration.scope).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ('focus' in c) {
+          c.postMessage({ bf: 'open', url: url });
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow(url);
     })
   );
 });
