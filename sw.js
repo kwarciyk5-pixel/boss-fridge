@@ -1,5 +1,5 @@
 /* Boss Fridge service worker. Bump CACHE_NAME together with BF_VERSION in index.html. */
-const CACHE_NAME = 'bf-v27';
+const CACHE_NAME = 'bf-v28';
 
 const PRECACHE = [
   './',

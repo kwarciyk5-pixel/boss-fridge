@@ -875,6 +875,20 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 .bf-stock-chips { margin-top: -4px; }
 .bf-low-x { min-width: 36px; padding: 0 8px; font-size: 18px; }
 
+/* ---------- batch Q2: Also an ingredient tick box, no line hint, struck no-stock names ---------- */
+.bf-also-old { display: none !important; }
+.bf-also-box { display: flex; flex-direction: column; gap: 2px; margin-top: -6px; }
+.bf-also-box .bf-check { min-height: 40px; }
+.bf-also-box .bf-hint { margin-left: 32px; font-size: 13px; }
+.bf-line-also { display: none !important; }
+.bf-line-dish.is-empty .bf-line-name {
+  text-decoration-line: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: currentColor;
+  text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
+  text-decoration-skip-ink: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -1011,7 +1025,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v27';
+var BF_VERSION = 'bf-v28';
 
 var BF = {
   sb: null,
@@ -13387,6 +13401,34 @@ BF.renderShop = function () {
   low.forEach(function (x) { card.appendChild(BF.lowRow(x)); });
   g.appendChild(card);
   ui.list.appendChild(g);
+};
+
+/* ===================== batch Q2: "Also an ingredient" as a tick box under Type; no line hint; struck no-stock names ===================== */
+
+/* Dish sheet: the switch from batch Q stays (hidden) as the state holder; a tick box drives it. */
+var _bfOpenDishSheetQ2 = BF.openDishSheet;
+BF.openDishSheet = function () {
+  _bfOpenDishSheetQ2.apply(this, arguments);
+  var body = BF.$('bf-sheet-body');
+  var row = body && body.querySelector('.bf-also');
+  var pill = row && row.querySelector('.bf-pill');
+  if (!row || !pill) return;
+  row.classList.add('bf-also-old');
+  var typeFs = Array.prototype.filter.call(body.querySelectorAll('fieldset'), function (f) {
+    var lg = f.querySelector('legend');
+    return lg && lg.textContent === 'Type';
+  })[0];
+  var wrap = BF.el('div', 'bf-also-box');
+  var c = BF.checkRow('Also an ingredient', pill.getAttribute('aria-pressed') === 'true', function (v) {
+    if ((pill.getAttribute('aria-pressed') === 'true') !== v) pill.click();
+  });
+  wrap.appendChild(c.row);
+  wrap.appendChild(BF.el('p', 'bf-hint', 'Cook can use it in recipes'));
+  if (typeFs && typeFs.parentNode) typeFs.parentNode.insertBefore(wrap, typeFs.nextSibling);
+  else row.parentNode.insertBefore(wrap, row);
+  var sync = function () { wrap.hidden = row.hidden; };
+  sync();
+  try { new MutationObserver(sync).observe(row, { attributes: true, attributeFilter: ['hidden'] }); } catch (e) { /* ignore */ }
 };
 
 BF.init();
