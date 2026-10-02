@@ -864,6 +864,17 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 .bf-rem-set { display: flex; flex-direction: column; gap: 8px; }
 .bf-rem-set > .bf-btn { align-self: flex-start; }
 
+/* ---------- batch Q: Library no-stock fade, Can make, also ingredient, brick Running low ---------- */
+:root { --bf-brick: #9a4a3f; --bf-bricksoft: #f6e3df; }
+@media (prefers-color-scheme: dark) {
+  :root { --bf-brick: #e3a397; --bf-bricksoft: #4a2a25; }
+}
+.bf-tag-low { background: var(--bf-bricksoft); color: var(--bf-brick); box-shadow: none; }
+.bf-line-dish.is-empty .bf-line-main { opacity: .55; }
+.bf-line-also { flex: 0 0 auto; margin-left: 6px; font-weight: 700; font-size: 11.5px; color: var(--bf-muted); white-space: nowrap; }
+.bf-stock-chips { margin-top: -4px; }
+.bf-low-x { min-width: 36px; padding: 0 8px; font-size: 18px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -1000,7 +1011,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v26';
+var BF_VERSION = 'bf-v27';
 
 var BF = {
   sb: null,
@@ -12890,6 +12901,492 @@ BF.openCookIt = function (opts) {
     draw();
     box.appendChild(form);
   });
+};
+
+/* ===================== batch Q: exact recipe matching, Also an ingredient, recipe renames, Library stock filter, Running low on Shop ===================== */
+
+/* ---------- one matching rule: whole name, or the name without its "( ... )" parts ---------- */
+BF.normName = function (s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase(); };
+BF.nameMatch = function (alt, libName) {
+  var a = BF.normName(alt);
+  if (!a) return false;
+  var n = BF.normName(libName);
+  if (a === n) return true;
+  return a === BF.normName(String(libName == null ? '' : libName).replace(/\([^)]*\)/g, ' '));
+};
+/* The first Library entry an ingredient name points at, or null. */
+BF.libMatch = function (alt) {
+  return BF.lib.dishes.filter(function (d) { return BF.nameMatch(alt, d.name); })[0] || null;
+};
+
+/* ---------- Also an ingredient (bf_dishes.also_ingredient) ---------- */
+BF.COLUMNS.bf_dishes.push('also_ingredient');
+var _bfRowProblemQ = BF.rowProblem;
+BF.rowProblem = function (t, r) {
+  if (t === 'bf_dishes' && r && r.also_ingredient !== undefined && typeof r.also_ingredient !== 'boolean') r.also_ingredient = false;
+  return _bfRowProblemQ.apply(this, arguments);
+};
+/* An entry counts for a recipe line when it is an Ingredient, a Side, or a Meal marked Also an ingredient. */
+BF.countsAsIngredient = function (d) {
+  if (!d) return false;
+  var c = BF.catOf(d);
+  return c === 'ingredient' || c === 'side' || (c === 'meal' && d.also_ingredient === true);
+};
+BF.itemMatches = function (it, alts, dish) {
+  var d = it && it.dish_id != null ? BF.findDish(it.dish_id) : null;
+  if (dish && d && String(d.id) === String(dish.id)) return false;
+  if (d) {
+    if (!BF.countsAsIngredient(d)) return false;
+    return alts.some(function (a) { return BF.nameMatch(a, d.name); });
+  }
+  return alts.some(function (a) { return BF.nameMatch(a, it && it.name); });
+};
+/* Recipe-line picker: Ingredients, Sides, and Meals marked Also an ingredient, A-Z. */
+BF.ingredientNames = function () {
+  return BF.lib.dishes.filter(BF.countsAsIngredient).slice().sort(BF.byName)
+    .map(function (d) { return String(d.name == null ? '' : d.name); });
+};
+
+/* ---------- renames follow into recipes ---------- */
+/* Every other dish whose alternatives matched the old name (and not the new one) gets the new full name. Returns how many dishes changed. */
+BF.renameInRecipes = async function (oldName, newName, dishId) {
+  var n = 0;
+  var dishes = BF.lib.dishes.filter(function (d) { return String(d.id) !== String(dishId) && BF.ingredientsOf(d).length; });
+  for (var i = 0; i < dishes.length; i++) {
+    var d = dishes[i];
+    var changed = false;
+    var lines = (Array.isArray(d.ingredients) ? d.ingredients : []).map(function (line) {
+      if (typeof line !== 'string') return line;
+      var alts = BF.altsOf(line);
+      var hit = false;
+      var next = alts.map(function (a) {
+        if (BF.nameMatch(a, oldName) && !BF.nameMatch(a, newName)) { hit = true; return String(newName).trim(); }
+        return a;
+      });
+      if (!hit) return line;
+      changed = true;
+      return next.join(' / ');
+    });
+    if (!changed) continue;
+    BF.q(await BF.sb.from('bf_dishes').update({ ingredients: lines }).eq('id', d.id));
+    n++;
+  }
+  return n;
+};
+/* Every rename of a Library entry passes here (dish sheet, Tidy): recipes follow, and the next toast says so. */
+BF._recipeNote = 0;
+var _bfRenameBoardLabelsQ = BF.renameBoardLabels;
+BF.renameBoardLabels = async function (dishId, name) {
+  var d = BF.findDish(dishId);
+  var oldName = d ? d.name : null;
+  if (oldName != null && !BF.exactName(oldName, name)) {
+    try { BF._recipeNote += await BF.renameInRecipes(oldName, name, dishId); }
+    catch (e) { console.warn('recipe rename failed', e); }
+  }
+  return _bfRenameBoardLabelsQ.apply(this, arguments);
+};
+var _bfToastQ = BF.toast;
+BF.toast = function (text) {
+  var args = Array.prototype.slice.call(arguments);
+  if (BF._recipeNote && typeof text === 'string' && text !== BF.SAVE_FAIL) {
+    args[0] = text + ' \u00b7 Updated ' + BF.plural(BF._recipeNote, 'recipe', 'recipes');
+    BF._recipeNote = 0;
+  }
+  return _bfToastQ.apply(this, args);
+};
+
+/* ---------- Library: no-stock names fade; recipe dishes show "Can make"; All / In stock / None ---------- */
+BF.canMake = function (d) {
+  var ings = BF.ingredientsOf(d);
+  return ings.length > 0 && ings.every(function (l) { return BF.lineInHouse(l, d); });
+};
+BF.inStock = function (d) {
+  return BF.stockTotal(d) !== '' || BF.canMake(d);
+};
+BF.LIB_STOCK = [['all', 'All'], ['in', 'In stock'], ['none', 'None']];
+BF._libStock = 'all';
+try { var _bfLs = localStorage.getItem('bf-lib-stock'); if (_bfLs === 'in' || _bfLs === 'none') BF._libStock = _bfLs; } catch (e) { /* ignore */ }
+BF.stockKeep = function (d) {
+  if (BF._libStock === 'all') return true;
+  var s = BF.inStock(d);
+  return BF._libStock === 'in' ? s : !s;
+};
+var _bfDishLineQ = BF.dishLine;
+BF.dishLine = function (d) {
+  var line = _bfDishLineQ.apply(this, arguments);
+  var bits = line.querySelector('.bf-line-bits');
+  if (BF.ingredientsOf(d).length) {
+    if (BF.canMake(d) && bits) bits.insertBefore(BF.el('span', 'bf-tag bf-tag-ready bf-tag-can', 'Can make'), bits.firstChild);
+  } else if (BF.stockTotal(d) === '') {
+    line.classList.add('is-empty');
+  }
+  if (d.also_ingredient === true && BF.catOf(d) === 'meal') {
+    var nm = line.querySelector('.bf-line-name');
+    if (nm && nm.parentNode) nm.parentNode.insertBefore(BF.el('span', 'bf-line-also', 'also ingredient'), nm.nextSibling);
+  }
+  return line;
+};
+var _bfBuildLibraryQ = BF.buildLibraryUI;
+BF.buildLibraryUI = function () {
+  var ui = _bfBuildLibraryQ.apply(this, arguments);
+  var row = BF.el('div', 'bf-pills bf-pills-line bf-stock-chips');
+  row.setAttribute('role', 'group');
+  row.setAttribute('aria-label', 'Stock');
+  ui.sbtns = BF.LIB_STOCK.map(function (s) {
+    var b = BF.el('button', 'bf-pill', s[1]);
+    b.type = 'button';
+    b._val = s[0];
+    b.addEventListener('click', function () {
+      BF._libStock = s[0];
+      try { localStorage.setItem('bf-lib-stock', s[0]); } catch (e) { /* ignore */ }
+      BF.renderLibrary();
+    });
+    row.appendChild(b);
+    return b;
+  });
+  var after = ui.fbtns.length ? ui.fbtns[0].parentNode : null;
+  if (after && after.parentNode) after.parentNode.insertBefore(row, after.nextSibling);
+  else ui.list.parentNode.insertBefore(row, ui.list);
+  return ui;
+};
+
+/* ---------- dish sheet (replaces batch P's): Also an ingredient; new recipe names checked with nameMatch ---------- */
+BF.openDishSheet = function (id) {
+  var old = id == null ? null : BF.findDish(id);
+  if (id != null && !old) return;
+  var st = { cat: old ? BF.catOf(old) : 'meal', made: old ? BF.madeOf(old) : null, also: !!(old && old.also_ingredient === true) };
+  BF.openSheet(function (box) {
+    var name0 = old ? String(old.name == null ? '' : old.name) : '';
+    box.appendChild(BF.el('h2', 'bf-sheet-title', old ? name0 : 'Add to the Library'));
+    var form = BF.el('div', 'bf-form');
+
+    if (old) {
+      var last = BF.lastHad(old);
+      var ago = last ? BF.ago(last) : '';
+      form.appendChild(BF.el('p', 'bf-hint', ago ? 'Last had ' + ago : 'Not had yet'));
+      var top = BF.el('div', 'bf-sheet-acts');
+      if (BF.hasRecipe(old)) top.appendChild(BF.button('\ud83d\udcd6 Recipe', 'bf-btn-gold', function () { BF.openRecipe(old.id); }));
+      top.appendChild(BF.button('We ate this', 'bf-btn-primary', function () { BF.closeSheet(); BF.weAteThis(old.id); }));
+      form.appendChild(top);
+      var here = BF.inHouse(old);
+      if (here.length) {
+        var g = BF.el('section', 'bf-group');
+        g.appendChild(BF.groupHead('In the house'));
+        var card = BF.el('div', 'bf-card bf-rows');
+        here.forEach(function (it) {
+          var iname = String(it.name == null ? '' : it.name);
+          var r = BF.el('div', 'bf-row');
+          var m = BF.el('div', 'bf-row-main');
+          var nb = BF.el('button', 'bf-textbtn', iname);
+          nb.type = 'button';
+          nb.addEventListener('click', function () { BF.openItemSheet(it.id); });
+          m.appendChild(nb);
+          var meta = [BF.locLabel(it.location)];
+          var amt = BF.itemAmount(it);
+          if (amt) meta.push(amt);
+          var ex = BF.expiryText(it.expiry);
+          if (ex) meta.push(ex);
+          m.appendChild(BF.el('div', 'bf-meta', meta.join(' \u00b7 ')));
+          r.appendChild(m);
+          var acts = BF.el('div', 'bf-row-acts');
+          acts.appendChild(BF.button('Ate it', 'bf-btn-primary bf-btn-sm', function () { BF.openAteIt(it.id); }, 'Ate it: ' + iname));
+          r.appendChild(acts);
+          card.appendChild(r);
+        });
+        g.appendChild(card);
+        form.appendChild(g);
+      }
+    }
+
+    var nameIn = BF.input({ placeholder: 'e.g. Mohinga', value: name0 });
+    var nameWrap = BF.labelled('Name', nameIn);
+    var err = BF.el('p', 'bf-err', '');
+    err.hidden = true;
+    err.setAttribute('role', 'alert');
+    nameWrap.appendChild(err);
+    nameIn.addEventListener('input', function () { err.hidden = true; });
+    form.appendChild(nameWrap);
+
+    var syncType = function () {};
+    var typeFs = BF.pillGroup('Type', BF.CAT_PILLS, function () { return st.cat; }, function (v) { st.cat = v; syncType(); });
+    form.appendChild(typeFs);
+
+    // Made by: optional; tap the chosen one again to clear it.
+    var madeFs = BF.el('fieldset', 'bf-fieldset');
+    madeFs.appendChild(BF.el('legend', 'bf-label', 'Made by (optional)'));
+    var madeRow = BF.el('div', 'bf-pills');
+    var madeBtns = BF.MADE_PILLS.map(function (m) {
+      var b = BF.el('button', 'bf-pill', m[1]);
+      b.type = 'button';
+      b.addEventListener('click', function () { st.made = st.made === m[0] ? null : m[0]; syncType(); });
+      madeRow.appendChild(b);
+      return b;
+    });
+    madeFs.appendChild(madeRow);
+    form.appendChild(madeFs);
+
+    // Also an ingredient (Meals only: it then counts in other recipes)
+    var alsoRow = BF.el('div', 'bf-pills bf-also');
+    alsoRow.appendChild(BF.togglePill('Also an ingredient', function () { return st.also; }, function (v) { st.also = v; }));
+    form.appendChild(alsoRow);
+
+    var ingWrap = BF.el('div', 'bf-form bf-ing-fields');
+    var ingIn = BF.input({ tag: 'textarea', placeholder: 'Pork / Chicken\nGarlic\nRice', value: old ? BF.ingredientsOf(old).join('\n') : '' });
+    ingIn.rows = 4;
+    ingWrap.appendChild(BF.labelled('Ingredients (optional, one per line; "/" for either)', ingIn));
+    var addRow = BF.el('div', 'bf-ing-add');
+    var addIn = BF.input({ placeholder: 'Add an ingredient' });
+    addIn.setAttribute('list', 'bf-ing-names');
+    addIn.setAttribute('aria-label', 'Add an ingredient');
+    var addIt = function () {
+      var v = addIn.value.trim();
+      if (!v) return;
+      var cur = ingIn.value.replace(/\s+$/, '');
+      ingIn.value = cur ? cur + '\n' + v : v;
+      addIn.value = '';
+      addIn.focus();
+    };
+    addIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addIt(); } });
+    addRow.appendChild(addIn);
+    addRow.appendChild(BF.button('Add', 'bf-btn-sm', addIt, 'Add this ingredient'));
+    ingWrap.appendChild(addRow);
+    ingWrap.appendChild(BF.datalist('bf-ing-names', BF.ingredientNames()));
+    form.appendChild(ingWrap);
+
+    var recipe = BF.el('div', 'bf-form bf-recipe-fields');
+    var stepsIn = BF.input({ tag: 'textarea', placeholder: 'Wash the rice\nFry the garlic\nAdd the pork, 10 min', value: old ? BF.stepsOf(old).join('\n') : '' });
+    stepsIn.rows = 5;
+    recipe.appendChild(BF.labelled('Recipe steps (optional, one per line)', stepsIn));
+    var linkIn = BF.input({ type: 'url', placeholder: 'https://\u2026 (YouTube, a website)', value: old && old.recipe_url ? String(old.recipe_url) : '' });
+    var linkWrap = BF.labelled('Recipe link (optional)', linkIn);
+    var linkErr = BF.el('p', 'bf-err', 'Starts with https://');
+    linkErr.hidden = true;
+    linkWrap.appendChild(linkErr);
+    linkIn.addEventListener('input', function () { linkErr.hidden = true; });
+    recipe.appendChild(linkWrap);
+    form.appendChild(recipe);
+
+    syncType = function () {
+      typeFs._sync();
+      var dish = st.cat !== 'ingredient' && st.cat !== 'household';
+      madeFs.hidden = !dish;
+      alsoRow.hidden = st.cat !== 'meal';
+      ingWrap.hidden = !dish;
+      recipe.hidden = !dish || st.made === 'outside';
+      madeBtns.forEach(function (b, i) {
+        var on = BF.MADE_PILLS[i][0] === st.made;
+        b.classList.toggle('is-on', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    };
+    syncType();
+
+    var notesIn = BF.input({ value: old && old.notes != null ? String(old.notes) : '' });
+    form.appendChild(BF.labelled('Notes (optional)', notesIn));
+
+    var save = BF.button(old ? 'Save' : 'Add', 'bf-btn-gold bf-btn-wide');
+    save.addEventListener('click', async function () {
+      var name = nameIn.value.trim();
+      var problem = !name ? 'Needs a name' : (BF.dishByName(name, old ? old.id : null) ? 'Already in the library' : '');
+      if (problem) {
+        err.textContent = problem;
+        err.hidden = false;
+        BF.shake(nameIn);
+        nameIn.focus();
+        return;
+      }
+      var link = linkIn.value.trim();
+      if (link && !/^https?:\/\/\S+$/i.test(link)) {
+        if (/^[\w-]+(\.[\w-]+)+\S*$/.test(link)) link = 'https://' + link;
+        else { linkErr.hidden = false; BF.shake(linkIn); linkIn.focus(); return; }
+      }
+      var made = st.cat === 'ingredient' || st.cat === 'household' ? null : st.made;
+      var lines = BF.ingredientLines(ingIn.value);
+      var row = {
+        name: name,
+        kind: BF.kindFor(st.cat, made),
+        category: st.cat,
+        made_by: made,
+        also_ingredient: st.cat === 'meal' && !!st.also,
+        ingredients: lines,
+        steps: BF.cleanSteps(stepsIn.value),
+        recipe_url: link || null,
+        notes: notesIn.value.trim() || null
+      };
+      // Ingredient names (each alternative) not in the Library yet join it as Ingredients.
+      var fresh = [];
+      if (st.cat !== 'household') lines.forEach(function (l) {
+        BF.altsOf(l).forEach(function (a) {
+          if (BF.nameMatch(a, name) || BF.libMatch(a) || fresh.some(function (f) { return BF.nameMatch(a, f); })) return;
+          fresh.push(a);
+        });
+      });
+      // The Library is the one list of names: linked items take a new name (Ready stays the item's own).
+      var linked = old ? BF.data.items.filter(function (it) { return String(it.dish_id) === String(old.id); }) : [];
+      var fix = linked.filter(function (it) { return !BF.exactName(it.name, name); }).map(function (it) { return it.id; });
+      var renamed = old && !BF.exactName(old.name, name);
+      var added = 0;
+      var ok = await BF.sheetSave(save, async function () {
+        if (old) BF.q(await BF.sb.from('bf_dishes').update(row).eq('id', old.id));
+        else BF.q(await BF.sb.from('bf_dishes').insert(row));
+        for (var i = 0; i < fix.length; i += 100) {
+          BF.q(await BF.sb.from('bf_items').update({ name: name }).in('id', fix.slice(i, i + 100)));
+        }
+        if (renamed) await BF.renameBoardLabels(old.id, name);
+        if (fresh.length) {
+          var res = await BF.sb.from('bf_dishes').insert(fresh.map(function (n) {
+            return { name: n, kind: 'ingredient', category: 'ingredient', made_by: null };
+          })).select('id');
+          if (!res.error) added = (res.data || []).length;
+          else {
+            for (var j = 0; j < fresh.length; j++) { if (await BF.ensureDish(fresh[j], 'ingredient') != null) added++; }
+          }
+        }
+      });
+      if (ok) BF.toast((old ? 'Saved ' : 'Added ') + name + (added ? ' \u00b7 ' + BF.plural(added, 'new ingredient', 'new ingredients') : ''));
+    });
+    form.appendChild(save);
+
+    if (old) {
+      form.appendChild(BF.button('Delete', 'bf-btn-ghost bf-btn-wide', function () {
+        BF.closeSheet();
+        BF.deleteDish(old.id);
+      }));
+    }
+    box.appendChild(form);
+  });
+};
+
+/* ---------- Library (replaces batch P's): the All / In stock / None chips filter too ---------- */
+BF.renderLibrary = function () {
+  var ui = BF.libUI || BF.buildLibraryUI();
+  BF.applyFavs();
+  ui.fbtns.forEach(function (b) {
+    var on = b._val === BF._libFilter;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  var list = ui.list;
+  list.replaceChildren();
+  if (!BF.lib.loaded) {
+    if (BF.lib.error) list.appendChild(BF.emptyCard('Couldn\'t load the library. Reopen the app to retry.'));
+    return;
+  }
+  var banner = BF.linkBanner();
+  if (banner) list.appendChild(banner);
+  var all = BF.lib.dishes.slice().sort(BF.byName);
+  if (!all.length) {
+    list.appendChild(BF.emptyCard('Nothing yet. Add a dish or an ingredient with +, or Paste a list.'));
+    return;
+  }
+  var f = BF._libFilter;
+  var shown = all.filter(function (d) {
+    if (!BF.stockKeep(d)) return false;
+    var c = BF.catOf(d);
+    if (f === 'fav') return !!d.favourite;
+    if (f === 'while') return c !== 'ingredient' && c !== 'household' && BF.haventHad(d);
+    if (f === 'recipe') return BF.hasRecipe(d);
+    if (BF.CATS.indexOf(f) >= 0) return c === f;
+    return true;
+  });
+  var needle = ui.search.value.trim().toLowerCase();
+  if (needle) shown = shown.filter(function (d) { return String(d.name == null ? '' : d.name).toLowerCase().indexOf(needle) >= 0; });
+  if (!shown.length) {
+    var msg = needle ? 'Nothing matches.'
+      : f === 'fav' ? 'No favourites yet. Tap the star on a dish.'
+      : f === 'while' ? 'Nothing here \u2013 you\'ve had everything lately.'
+      : f === 'recipe' ? 'No recipes yet. Open a homemade dish, Edit, and add steps or a link.'
+      : 'Nothing here yet.';
+    list.appendChild(BF.emptyCard(msg));
+    return;
+  }
+  var force = !!needle || BF.CATS.indexOf(f) >= 0 || f === 'recipe';
+  var of = function (c) { return shown.filter(function (d) { return BF.catOf(d) === c; }); };
+  var meals = of('meal');
+  var sides = of('side');
+  var ings = of('ingredient');
+  var hh = of('household');
+  if (meals.length || sides.length) {
+    var g = BF.el('section', 'bf-lib-group');
+    g.appendChild(BF.groupHead('Dishes', String(meals.length + sides.length)));
+    if (meals.length) g.appendChild(BF.note('lib:meal', 'Meals', meals.map(BF.dishLine), BF.NOTE_TONE.meal, force));
+    if (sides.length) g.appendChild(BF.note('lib:side', 'Sides & snacks', sides.map(BF.dishLine), BF.NOTE_TONE.side, force));
+    list.appendChild(g);
+  }
+  if (ings.length) {
+    var gi = BF.el('section', 'bf-lib-group');
+    gi.appendChild(BF.groupHead('Ingredients', String(ings.length)));
+    gi.appendChild(BF.note('lib:ingredient', 'Ingredients', ings.map(BF.dishLine), BF.NOTE_TONE.ingredient, force));
+    list.appendChild(gi);
+  }
+  if (hh.length) {
+    var gh = BF.el('section', 'bf-lib-group');
+    gh.appendChild(BF.groupHead('Household', String(hh.length)));
+    gh.appendChild(BF.note('lib:household', 'Household', hh.map(BF.dishLine), BF.NOTE_TONE.household, force));
+    list.appendChild(gh);
+  }
+};
+var _bfRenderLibraryQ = BF.renderLibrary;
+BF.renderLibrary = function () {
+  var ui = BF.libUI || BF.buildLibraryUI();
+  (ui.sbtns || []).forEach(function (b) {
+    var on = b._val === BF._libStock;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  return _bfRenderLibraryQ.apply(this, arguments);
+};
+
+/* ---------- Shop: a "Running low" section (to_buy rows with low = true), after Recently bought ---------- */
+BF.deleteGrocery = async function (id) {
+  var old = BF.findGrocery(id);
+  if (!old) return;
+  var ok = await BF.run(async function () { BF.q(await BF.sb.from('bf_groceries').delete().eq('id', id)); });
+  if (ok) BF.toast('Deleted ' + old.name, function () {
+    BF.run(async function () { BF.q(await BF.sb.from('bf_groceries').insert(old)); });
+  });
+};
+BF.lowToBuy = async function (id) {
+  var g = BF.findGrocery(id);
+  if (!g) return;
+  var ok = await BF.run(async function () { BF.q(await BF.sb.from('bf_groceries').update({ low: false }).eq('id', id)); });
+  if (ok) BF.toast(g.name + ' \u2192 to buy', function () {
+    BF.run(async function () { BF.q(await BF.sb.from('bf_groceries').update({ low: true }).eq('id', id)); });
+  });
+};
+BF.lowRow = function (g) {
+  var name = String(g.name == null ? '' : g.name);
+  var row = BF.el('div', 'bf-row bf-low-row');
+  var main = BF.el('div', 'bf-row-main');
+  var nb = BF.el('button', 'bf-textbtn', name);
+  nb.type = 'button';
+  nb.addEventListener('click', function () { BF.openGrocerySheet(g.id); });
+  main.appendChild(nb);
+  var tags = BF.el('div', 'bf-tags');
+  tags.appendChild(BF.el('span', 'bf-tag bf-tag-low', 'Running low'));
+  main.appendChild(tags);
+  row.appendChild(main);
+  var acts = BF.el('div', 'bf-row-acts');
+  acts.appendChild(BF.button('To buy', 'bf-btn-ghost bf-btn-sm bf-btn-xs', function (e) { e.currentTarget.disabled = true; BF.lowToBuy(g.id); }, 'Move ' + name + ' to To buy'));
+  acts.appendChild(BF.button('Bought', 'bf-btn-primary bf-btn-sm', function (e) { e.currentTarget.disabled = true; BF.bought(g.id, true); }, 'Bought ' + name));
+  acts.appendChild(BF.button('\u00d7', 'bf-btn-ghost bf-btn-sm bf-low-x', function (e) { e.currentTarget.disabled = true; BF.deleteGrocery(g.id); }, 'Delete ' + name));
+  row.appendChild(acts);
+  return row;
+};
+var _bfRenderShopQ = BF.renderShop;
+BF.renderShop = function () {
+  var all = BF.data.groceries;
+  var low = (all || []).filter(function (g) { return g.low === true && g.status !== 'bought'; }).sort(BF.byName);
+  BF.data.groceries = (all || []).filter(function (g) { return low.indexOf(g) < 0; });
+  try { _bfRenderShopQ.apply(this, arguments); } finally { BF.data.groceries = all; }
+  var ui = BF.shopUI;
+  if (!ui || !BF.data.loaded || !low.length) return;
+  var g = BF.el('section', 'bf-group bf-low-group');
+  g.appendChild(BF.groupHead('Running low', String(low.length)));
+  var card = BF.el('div', 'bf-card bf-rows');
+  low.forEach(function (x) { card.appendChild(BF.lowRow(x)); });
+  g.appendChild(card);
+  ui.list.appendChild(g);
 };
 
 BF.init();
