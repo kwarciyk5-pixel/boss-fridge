@@ -843,6 +843,27 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 .bf-check input { width: 22px; height: 22px; flex: 0 0 auto; accent-color: var(--bf-blue); }
 .bf-check-text { min-width: 0; overflow-wrap: anywhere; }
 
+/* ---------- batch P: Fridge type groups, stock, Running low, Left, Reminders ---------- */
+.bf-sub-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; margin: 4px 0 0; padding: 4px 0 2px;
+  border: 0; background: transparent; color: var(--bf-muted); font-family: var(--bf-font); text-align: left; cursor: pointer;
+}
+.bf-note-body > .bf-sub-head:first-child { margin-top: 0; }
+.bf-sub-head:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 1px; border-radius: 6px; }
+.bf-sub-title { font-weight: 900; font-size: 12.5px; letter-spacing: .4px; text-transform: uppercase; }
+.bf-sub-count { font-weight: 800; font-size: 12px; }
+.bf-sub-caret { margin-left: auto; font-size: 12px; }
+.bf-sub-head + .bf-line { border-top: 0; }
+.bf-line-left { font-weight: 800; font-size: 12.5px; color: var(--bf-muted); white-space: nowrap; }
+.bf-line-stock { flex: 0 0 auto; margin-left: 6px; font-weight: 800; font-size: 13px; color: var(--bf-muted); white-space: nowrap; }
+.bf-tag-low { background: var(--bf-gold); color: #1D3447; }
+.bf-rem-host { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.bf-rem-card { display: flex; flex-direction: column; gap: 6px; background: var(--bf-goldsoft); }
+.bf-rem-title { margin: 0; font-family: var(--bf-font-head); font-weight: 700; font-size: 19px; overflow-wrap: anywhere; }
+.bf-rem-meta { margin: 0 0 4px; }
+.bf-rem-set { display: flex; flex-direction: column; gap: 8px; }
+.bf-rem-set > .bf-btn { align-self: flex-start; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -979,7 +1000,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v25';
+var BF_VERSION = 'bf-v26';
 
 var BF = {
   sb: null,
@@ -11610,6 +11631,1265 @@ BF.saveFile = async function (json, filename) {
   a.remove();
   setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
   return 'downloaded';
+};
+
+/* ===================== batch P: A-Z, Fridge groups by type, Household, stock + Running low, Left, Cook matching, leftover timer, Reminders ===================== */
+
+/* ---------- A-Z everywhere: one locale-aware compare (Burmese and English) ---------- */
+BF.az = function (a, b) {
+  return String(a == null ? '' : a).trim().localeCompare(String(b == null ? '' : b).trim(), 'en', { sensitivity: 'base', numeric: true });
+};
+BF.byName = function (a, b) { return BF.az(a && a.name, b && b.name); };
+
+/* Shop: the to-buy list A-Z (Recently bought keeps its newest-first order). */
+var _bfRenderShopP = BF.renderShop;
+BF.renderShop = function () {
+  var all = BF.data.groceries;
+  BF.data.groceries = (all || []).slice().sort(BF.byName);
+  try { return _bfRenderShopP.apply(this, arguments); } finally { BF.data.groceries = all; }
+};
+
+/* ---------- Household: a fourth Library type (category 'household', kind 'ingredient') ---------- */
+BF.CATS.push('household');
+BF.CAT_PILLS.push(['household', 'Household']);
+BF.NOTE_TONE.household = 'gold';
+var _bfKindForP = BF.kindFor;
+BF.kindFor = function (cat, made) {
+  if (cat === 'household') return 'ingredient';
+  return _bfKindForP.apply(this, arguments);
+};
+var _bfMadeOfP = BF.madeOf;
+BF.madeOf = function (d) {
+  if (d && d.category === 'household') return null;
+  return _bfMadeOfP.apply(this, arguments);
+};
+var _bfCatLabelP = BF.catLabel;
+BF.catLabel = function (c) { return c === 'household' ? 'Household' : _bfCatLabelP.apply(this, arguments); };
+BF.isHousehold = function (it) {
+  var d = it && it.dish_id != null ? BF.findDish(it.dish_id) : null;
+  return !!d && BF.catOf(d) === 'household';
+};
+/* Import: a household entry never has a made-by; kind follows (O's wrapper keeps kind in step). */
+var _bfRowProblemP = BF.rowProblem;
+BF.rowProblem = function (t, r) {
+  if (t === 'bf_dishes' && r && r.category === 'household') r.made_by = null;
+  if (t === 'bf_items' && r && r.level != null && !(typeof r.level === 'number' && r.level > 0 && r.level <= 1)) r.level = null;
+  if (t === 'bf_reminders' && r) {
+    if (typeof r.title !== 'string' || !r.title.trim()) return 'missing title';
+    r.title = r.title.trim().slice(0, 80);
+    if (!(typeof r.weekday === 'number' && Math.floor(r.weekday) === r.weekday && r.weekday >= 0 && r.weekday <= 6)) return 'bad weekday';
+    if (r.notify_at == null || r.notify_at === '') delete r.notify_at;
+    else if (!(typeof r.notify_at === 'string' && /^\d{2}:\d{2}(:\d{2})?$/.test(r.notify_at))) return 'bad time';
+    return null;
+  }
+  return _bfRowProblemP.apply(this, arguments);
+};
+/* Household never goes on the wheel or into Swipe. */
+var _bfWheelOptionsP = BF.wheelOptions;
+BF.wheelOptions = function () {
+  return _bfWheelOptionsP.apply(this, arguments).filter(function (o) {
+    if (o.kind === 'dish') return BF.catOf(BF.findDish(o.id)) !== 'household';
+    if (o.kind === 'item') return !BF.isHousehold(BF.findItem(o.id));
+    return true;
+  });
+};
+var _bfSwipeCandidatesP = BF.swipeCandidates;
+BF.swipeCandidates = function () {
+  return _bfSwipeCandidatesP.apply(this, arguments).filter(function (o) {
+    var d = o.dish_id != null ? BF.findDish(o.dish_id) : null;
+    return !d || BF.catOf(d) !== 'household';
+  });
+};
+
+/* ---------- Fridge tab: inside each place, groups by Library type, A-Z, each group foldable ---------- */
+BF.FRIDGE_TYPES = [['meal', 'Meals'], ['side', 'Sides & snacks'], ['ingredient', 'Ingredients'], ['household', 'Household'], ['other', 'Other']];
+BF.typeOfItem = function (it) {
+  var d = it && it.dish_id != null ? BF.findDish(it.dish_id) : null;
+  return d ? BF.catOf(d) : 'other';
+};
+BF.subHead = function (key, title, n, folded, onToggle) {
+  var b = BF.el('button', 'bf-sub-head' + (folded ? ' is-folded' : ''));
+  b.type = 'button';
+  b.setAttribute('aria-expanded', folded ? 'false' : 'true');
+  b.appendChild(BF.el('span', 'bf-sub-title', title));
+  b.appendChild(BF.el('span', 'bf-sub-count', String(n)));
+  b.appendChild(BF.el('span', 'bf-sub-caret', folded ? '\u25b8' : '\u25be'));
+  b.addEventListener('click', function () { BF.toggleFold(key); onToggle(); });
+  return b;
+};
+BF.renderFridge = function () {
+  var ui = BF.fridgeUI || BF.buildFridgeUI();
+  var list = ui.list;
+  list.replaceChildren();
+  if (!BF.data.loaded) return;
+  var items = BF.data.items;
+  if (!items.length) {
+    list.appendChild(BF.emptyCard('The fridge is empty. Add something, or paste a list with Bulk.'));
+    return;
+  }
+  var needle = ui.search.value.trim().toLowerCase();
+  var shown = needle ? items.filter(function (i) {
+    return String(i.name == null ? '' : i.name).toLowerCase().indexOf(needle) >= 0;
+  }) : items;
+  if (!shown.length) {
+    list.appendChild(BF.emptyCard('Nothing matches.'));
+    return;
+  }
+  var known = BF.LOCATIONS.map(function (l) { return l[0]; });
+  BF.LOCATIONS.forEach(function (loc) {
+    var rows = shown.filter(function (i) {
+      return (known.indexOf(i.location) >= 0 ? i.location : 'fridge') === loc[0];
+    });
+    if (!rows.length) return;
+    var lines = [];
+    BF.FRIDGE_TYPES.forEach(function (tp) {
+      var grp = rows.filter(function (it) { return BF.typeOfItem(it) === tp[0]; }).sort(BF.byName);
+      if (!grp.length) return;
+      var key = 'fsub:' + loc[0] + ':' + tp[0];
+      var folded = !needle && BF.isFolded(key);
+      lines.push(BF.subHead(key, tp[1], grp.length, folded, BF.renderFridge));
+      if (!folded) grp.forEach(function (it) { lines.push(BF.itemLine(it)); });
+    });
+    var note = BF.note('fridge:' + loc[0], loc[1], lines, BF.NOTE_TONE[loc[0]], !!needle);
+    var cnt = note.querySelector('.bf-note-count');
+    if (cnt) cnt.textContent = String(rows.length);
+    list.appendChild(note);
+  });
+};
+
+/* ---------- "Left" in an opened pack: bf_items.level (null = full) ---------- */
+BF.COLUMNS.bf_items.push('level');
+BF.LEVELS = [[null, 'Full'], [0.75, '\u00be'], [0.5, '\u00bd'], [0.25, '\u00bc'], [0.1, 'Nearly out']];
+BF.levelText = function (lv) {
+  if (lv == null || lv === '') return '';
+  var n = Number(lv);
+  if (!(n > 0 && n <= 1) || n === 1) return '';
+  if (Math.abs(n - 0.1) < 0.001) return 'nearly out';
+  var hit = BF.LEVELS.filter(function (l) { return l[0] != null && Math.abs(l[0] - n) < 0.001; })[0];
+  return (hit ? hit[1] : Math.round(n * 100) + '%') + ' left';
+};
+
+/* ---------- Fridge line: "1/2 left" after the amount ---------- */
+var _bfItemLineP = BF.itemLine;
+BF.itemLine = function (it) {
+  var line = _bfItemLineP.apply(this, arguments);
+  var t = BF.levelText(it && it.level);
+  var bits = line.querySelector('.bf-line-bits');
+  if (t && bits) {
+    var c = bits.querySelector('.bf-line-count');
+    var s = BF.el('span', 'bf-line-left', t);
+    if (c) bits.insertBefore(s, c.nextSibling);
+    else bits.insertBefore(s, bits.firstChild);
+  }
+  return line;
+};
+
+/* ---------- Library: stock across all places + a gold "Running low" tag ---------- */
+/* "x5", "1.5 kg", "some" (only uncounted items), or '' for none in the house. */
+BF.stockTotal = function (d) {
+  var its = BF.inHouse(d);
+  if (!its.length) return '';
+  var byUnit = { g: 0, ml: 0, n: 0 };
+  var counted = false;
+  its.forEach(function (it) {
+    var u = BF.unitOf(it);
+    if (u && it.count != null) { byUnit[u] += Number(it.count) || 0; counted = true; }
+    else if (it.count != null) { byUnit.n += Number(it.count) || 0; counted = true; }
+    else byUnit.n += 1;
+  });
+  if (!counted) return 'some';
+  var out = [];
+  if (byUnit.n) out.push('\u00d7' + byUnit.n);
+  if (byUnit.g) out.push(BF.amountText(byUnit.g, 'g'));
+  if (byUnit.ml) out.push(BF.amountText(byUnit.ml, 'ml'));
+  return out.join(' + ');
+};
+BF.isRunningLow = function (d) {
+  return (BF.data.groceries || []).some(function (g) { return g.low === true && g.status !== 'bought' && BF.sameName(g.name, d.name); });
+};
+var _bfDishLineP = BF.dishLine;
+BF.dishLine = function (d) {
+  var line = _bfDishLineP.apply(this, arguments);
+  var nm = line.querySelector('.bf-line-name');
+  var tot = BF.stockTotal(d);
+  if (tot && nm && nm.parentNode) {
+    var s = BF.el('span', 'bf-line-stock', tot);
+    s.setAttribute('aria-label', 'In the house: ' + tot);
+    var after = nm.nextSibling && nm.nextSibling.classList && nm.nextSibling.classList.contains('bf-line-recipe') ? nm.nextSibling : nm;
+    nm.parentNode.insertBefore(s, after.nextSibling);
+  }
+  if (BF.isRunningLow(d)) {
+    var bits = line.querySelector('.bf-line-bits');
+    if (bits) bits.insertBefore(BF.el('span', 'bf-tag bf-tag-low', 'Running low'), bits.firstChild);
+  }
+  return line;
+};
+
+/* ---------- Cook matching: only Ingredients and Sides count; a linked entry's name holds the words ---------- */
+BF.WORDCH = /[\p{L}\p{M}\p{N}]/u;
+/* True when name equals alt, or contains it as a whole word sequence (case-insensitive). */
+BF.nameHas = function (name, alt) {
+  var n = String(name == null ? '' : name).trim().toLowerCase();
+  var a = String(alt == null ? '' : alt).trim().toLowerCase();
+  if (!a || !n) return false;
+  if (n === a) return true;
+  var i = n.indexOf(a);
+  while (i >= 0) {
+    var before = i === 0 ? '' : n.charAt(i - 1);
+    var after = i + a.length >= n.length ? '' : n.charAt(i + a.length);
+    if ((!before || !BF.WORDCH.test(before)) && (!after || !BF.WORDCH.test(after))) return true;
+    i = n.indexOf(a, i + 1);
+  }
+  return false;
+};
+/* dish (optional): the dish being cooked - its own items never count as its ingredient. */
+BF.itemMatches = function (it, alts, dish) {
+  var d = it && it.dish_id != null ? BF.findDish(it.dish_id) : null;
+  if (dish && d && String(d.id) === String(dish.id)) return false;
+  if (d) {
+    var c = BF.catOf(d);
+    if (c !== 'ingredient' && c !== 'side') return false;
+    return alts.some(function (a) { return BF.nameHas(d.name, a); });
+  }
+  var n = BF.norm(it && it.name);
+  return !!n && alts.some(function (a) { return !!BF.norm(a) && BF.haveIngredient(a, [n]); });
+};
+BF.lineInHouse = function (line, dish) {
+  var alts = BF.altsOf(line);
+  return BF.data.items.some(function (it) { return BF.itemMatches(it, alts, dish); });
+};
+
+/* ---------- Reminders (bf_reminders): weekly, stay until Done ---------- */
+BF.WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+BF.WEEKDAY_PILLS = [[0, 'Sun'], [1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat']];
+BF.MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+BF.shortDate = function (d) { return BF.WEEKDAYS[d.getDay()].slice(0, 3) + ' ' + d.getDate() + ' ' + BF.MONTHS[d.getMonth()]; };
+/* Pure: { due, since (Date of the occurrence), overdue } or null. now = Date or ms. */
+BF.reminderDue = function (rem, now) {
+  if (!rem) return null;
+  var wd = Number(rem.weekday);
+  if (!(wd >= 0 && wd <= 6 && Math.floor(wd) === wd)) return null;
+  var t = new Date(now == null ? Date.now() : now);
+  var today = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+  var occ = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() - wd + 7) % 7));
+  if (rem.created_at) {
+    var c = new Date(rem.created_at);
+    if (!isNaN(c.getTime()) && occ < new Date(c.getFullYear(), c.getMonth(), c.getDate())) return { due: false, since: null, overdue: false };
+  }
+  var done = rem.last_done_at ? new Date(rem.last_done_at) : null;
+  var due = !done || isNaN(done.getTime()) || done < occ;
+  return { due: due, since: occ, overdue: due && occ < today };
+};
+
+BF.rem = { rows: [], loaded: false };
+BF._remSeq = 0;
+BF.loadReminders = async function () {
+  if (!BF.sb) return;
+  var seq = ++BF._remSeq;
+  var r;
+  try { r = await BF.sb.from('bf_reminders').select('*').order('created_at', { ascending: true }); } catch (e) { console.warn('reminders load failed', e); return; }
+  if (seq !== BF._remSeq) return;
+  if (r.error) { console.warn('reminders load failed', r.error); return; }
+  BF.rem.rows = r.data || [];
+  BF.rem.loaded = true;
+  BF.renderReminders();
+};
+var _bfLoadDataP = BF.loadData;
+BF.loadData = function () {
+  return Promise.all([_bfLoadDataP.apply(this, arguments), BF.loadReminders()]);
+};
+BF.findReminder = function (id) {
+  return BF.rem.rows.filter(function (r) { return String(r.id) === String(id); })[0] || null;
+};
+BF.remindersListen = function () {
+  if (!BF.sb || typeof BF.sb.channel !== 'function' || BF._remCh) return;
+  var kick = function () {
+    clearTimeout(BF._remTimer);
+    BF._remTimer = setTimeout(function () { if (BF.screen === 'app') BF.loadReminders(); }, 250);
+  };
+  var ch = BF.sb.channel('bf-reminders')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'bf_reminders' }, kick);
+  BF._remCh = ch;
+  ch.subscribe(function (status) {
+    if (ch !== BF._remCh) return;
+    if (status === 'SUBSCRIBED') { kick(); return; }
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      console.warn('reminders realtime', status);
+      BF._remCh = null;
+      try { BF.sb.removeChannel(ch); } catch (e) { /* ignore */ }
+    }
+  });
+};
+var _bfBootP = BF.boot;
+BF.boot = async function () {
+  await _bfBootP.apply(this, arguments);
+  if (BF.screen === 'app') BF.remindersListen();
+};
+
+/* Cards at the top of the Boss tab and the Fridge tab, one per due reminder. */
+BF.remHost = function (tab) {
+  var id = 'bf-rem-' + tab;
+  var h = BF.$(id);
+  if (h) return h;
+  var sec = BF.$('bf-tab-' + tab);
+  if (!sec) return null;
+  h = BF.el('div', 'bf-rem-host');
+  h.id = id;
+  sec.insertBefore(h, sec.firstChild);
+  return h;
+};
+BF.reminderCard = function (r, st) {
+  var c = BF.el('section', 'bf-card bf-rem-card');
+  c.setAttribute('aria-label', 'Reminder: ' + String(r.title == null ? '' : r.title));
+  c.appendChild(BF.el('p', 'bf-rem-title', String(r.title == null ? '' : r.title)));
+  var meta = 'Every ' + BF.WEEKDAYS[Number(r.weekday)];
+  if (st.overdue && st.since) meta += ' \u00b7 since ' + BF.shortDate(st.since);
+  c.appendChild(BF.el('p', 'bf-hint bf-rem-meta', meta));
+  c.appendChild(BF.button('Done', 'bf-btn-primary bf-btn-wide bf-act-main', function (e) {
+    e.currentTarget.disabled = true;
+    BF.reminderDone(r.id);
+  }, 'Done: ' + String(r.title == null ? '' : r.title)));
+  return c;
+};
+BF.renderReminders = function () {
+  var now = Date.now();
+  var due = BF.rem.rows.map(function (r) { return { r: r, st: BF.reminderDue(r, now) }; })
+    .filter(function (x) { return x.st && x.st.due; })
+    .sort(function (a, b) { return BF.az(a.r.title, b.r.title); });
+  ['boss', 'fridge'].forEach(function (tab) {
+    var h = BF.remHost(tab);
+    if (!h) return;
+    h.replaceChildren();
+    due.forEach(function (x) { h.appendChild(BF.reminderCard(x.r, x.st)); });
+    h.hidden = !due.length;
+  });
+};
+setInterval(function () { if (BF.screen === 'app' && BF.rem.loaded) BF.renderReminders(); }, 60000);
+
+BF.reminderDone = async function (id) {
+  var r = BF.findReminder(id);
+  if (!r) return;
+  var old = { last_done_at: r.last_done_at == null ? null : r.last_done_at, last_done_by: r.last_done_by == null ? null : r.last_done_by };
+  var title = String(r.title == null ? '' : r.title);
+  var ok = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_reminders').update({ last_done_at: new Date().toISOString(), last_done_by: BF.myEmail() }).eq('id', id));
+  });
+  if (ok === false) return;
+  BF.toast('Done: ' + title, function () {
+    BF.run(async function () { BF.q(await BF.sb.from('bf_reminders').update(old).eq('id', id)); });
+  });
+};
+
+/* ---------- Settings: Reminders ---------- */
+BF.timeText = function (t) { return t ? String(t).slice(0, 5) : ''; };
+BF.reminderLine = function (r) {
+  var row = BF.el('div', 'bf-row bf-rem-row');
+  var main = BF.el('div', 'bf-row-main');
+  main.appendChild(BF.el('div', 'bf-hist-name', String(r.title == null ? '' : r.title)));
+  var bits = ['Every ' + BF.WEEKDAYS[Number(r.weekday)] + (r.notify_at ? ' \u00b7 ' + BF.timeText(r.notify_at) : '')];
+  if (r.last_done_at) {
+    var m = BF.memberByEmail(r.last_done_by);
+    var who = m ? ((m.emoji ? m.emoji + ' ' : '') + (m.display_name || m.email)) : (r.last_done_by || 'Someone');
+    bits.push('last done by ' + who + ', ' + BF.shortDate(new Date(r.last_done_at)));
+  }
+  main.appendChild(BF.el('div', 'bf-meta', bits.join(' \u00b7 ')));
+  row.appendChild(main);
+  var acts = BF.el('div', 'bf-row-acts');
+  acts.appendChild(BF.button('Edit', 'bf-btn-sm', function () { BF.openReminderEditor(r.id); }, 'Edit ' + String(r.title || '')));
+  acts.appendChild(BF.button('Delete', 'bf-btn-sm bf-btn-ghost', function () { BF.closeSheet(); BF.deleteReminder(r.id); }, 'Delete ' + String(r.title || '')));
+  row.appendChild(acts);
+  return row;
+};
+var _bfOpenSettingsP = BF.openSettings;
+BF.openSettings = function () {
+  _bfOpenSettingsP.apply(this, arguments);
+  var body = BF.$('bf-sheet-body');
+  if (!body) return;
+  var wrap = BF.el('div', 'bf-rem-set');
+  wrap.appendChild(BF.setHead('Reminders'));
+  var rows = BF.rem.rows.slice().sort(function (a, b) { return (Number(a.weekday) - Number(b.weekday)) || BF.az(a.title, b.title); });
+  if (rows.length) {
+    var card = BF.el('div', 'bf-card bf-rows');
+    rows.forEach(function (r) { card.appendChild(BF.reminderLine(r)); });
+    wrap.appendChild(card);
+  } else {
+    wrap.appendChild(BF.el('p', 'bf-hint bf-set-tip', 'No reminders yet.'));
+  }
+  wrap.appendChild(BF.button('+ Add reminder', 'bf-btn-sm', function () { BF.openReminderEditor(null); }));
+  var push = body.querySelector('.bf-push-box');
+  var anchor = push ? push.parentNode : null;
+  if (!anchor) { var danger = body.querySelector('.bf-btn-danger'); anchor = danger ? danger.parentNode : body.querySelector('.bf-set-signout'); }
+  if (anchor && anchor.parentNode === body) body.insertBefore(wrap, anchor);
+  else body.appendChild(wrap);
+};
+BF.openAccount = BF.openSettings;
+BF.$('bf-settings-btn').removeEventListener('click', _bfOpenSettingsP);
+BF.$('bf-settings-btn').addEventListener('click', BF.openSettings);
+
+BF.openReminderEditor = function (id) {
+  var old = id == null ? null : BF.findReminder(id);
+  if (id != null && !old) return;
+  var st = { weekday: old ? Number(old.weekday) : new Date().getDay() };
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', old ? 'Edit reminder' : 'New reminder'));
+    var form = BF.el('div', 'bf-form');
+    var t = BF.input({ placeholder: 'e.g. Put empty Sprinkle bottles out', value: old ? String(old.title || '') : '' });
+    t.maxLength = 80;
+    var tw = BF.labelled('What', t);
+    var err = BF.el('p', 'bf-err', 'Needs a title');
+    err.hidden = true;
+    err.setAttribute('role', 'alert');
+    tw.appendChild(err);
+    t.addEventListener('input', function () { err.hidden = true; });
+    form.appendChild(tw);
+    form.appendChild(BF.pillGroup('Every', BF.WEEKDAY_PILLS, function () { return st.weekday; }, function (v) { st.weekday = v; }));
+    var at = BF.input({ type: 'time', value: old && old.notify_at ? BF.timeText(old.notify_at) : '23:55' });
+    at.classList.add('bf-when-in');
+    var aw = BF.labelled('Notify at', at);
+    aw.appendChild(BF.el('p', 'bf-hint', 'Phone notification comes in a later update'));
+    form.appendChild(aw);
+    var save = BF.button(old ? 'Save' : 'Add', 'bf-btn-gold bf-btn-wide');
+    save.addEventListener('click', async function () {
+      var title = t.value.trim();
+      if (!title) { err.hidden = false; BF.shake(t); t.focus(); return; }
+      var row = { title: title.slice(0, 80), weekday: st.weekday, notify_at: at.value || '23:55' };
+      var ok = await BF.sheetSave(save, async function () {
+        if (old) BF.q(await BF.sb.from('bf_reminders').update(row).eq('id', old.id));
+        else BF.q(await BF.sb.from('bf_reminders').insert(row));
+      });
+      if (ok) BF.toast(old ? 'Saved' : 'Reminder added');
+    });
+    form.appendChild(save);
+    box.appendChild(form);
+  });
+};
+
+BF.deleteReminder = async function (id) {
+  var old = BF.findReminder(id);
+  if (!old) return;
+  var ok = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_reminders').delete().eq('id', id));
+  });
+  if (ok === false) return;
+  BF.toast('Deleted ' + String(old.title || ''), function () {
+    BF.run(async function () {
+      var row = {};
+      BF.COLUMNS.bf_reminders.forEach(function (c) { if (old[c] !== undefined) row[c] = old[c]; });
+      BF.q(await BF.sb.from('bf_reminders').insert(row));
+    });
+  });
+};
+
+/* ---------- Reminders in Export / Import / Clear all ---------- */
+BF.BACKUP.push({ label: 'Reminders', short: 'reminders', slug: 'reminders', tables: ['bf_reminders'] });
+BF.COLUMNS.bf_reminders = ['id', 'title', 'weekday', 'notify_at', 'last_done_at', 'last_done_by', 'created_by', 'created_at'];
+BF.WRITE_ORDER.push('bf_reminders');
+BF.DELETE_ORDER = BF.WRITE_ORDER.slice().reverse();
+
+/* ---------- dish sheet (replaces batch O's): Household type (no made-by, no ingredients) ---------- */
+BF.openDishSheet = function (id) {
+  var old = id == null ? null : BF.findDish(id);
+  if (id != null && !old) return;
+  var st = { cat: old ? BF.catOf(old) : 'meal', made: old ? BF.madeOf(old) : null };
+  BF.openSheet(function (box) {
+    var name0 = old ? String(old.name == null ? '' : old.name) : '';
+    box.appendChild(BF.el('h2', 'bf-sheet-title', old ? name0 : 'Add to the Library'));
+    var form = BF.el('div', 'bf-form');
+
+    if (old) {
+      var last = BF.lastHad(old);
+      var ago = last ? BF.ago(last) : '';
+      form.appendChild(BF.el('p', 'bf-hint', ago ? 'Last had ' + ago : 'Not had yet'));
+      var top = BF.el('div', 'bf-sheet-acts');
+      if (BF.hasRecipe(old)) top.appendChild(BF.button('\ud83d\udcd6 Recipe', 'bf-btn-gold', function () { BF.openRecipe(old.id); }));
+      top.appendChild(BF.button('We ate this', 'bf-btn-primary', function () { BF.closeSheet(); BF.weAteThis(old.id); }));
+      form.appendChild(top);
+      var here = BF.inHouse(old);
+      if (here.length) {
+        var g = BF.el('section', 'bf-group');
+        g.appendChild(BF.groupHead('In the house'));
+        var card = BF.el('div', 'bf-card bf-rows');
+        here.forEach(function (it) {
+          var iname = String(it.name == null ? '' : it.name);
+          var r = BF.el('div', 'bf-row');
+          var m = BF.el('div', 'bf-row-main');
+          var nb = BF.el('button', 'bf-textbtn', iname);
+          nb.type = 'button';
+          nb.addEventListener('click', function () { BF.openItemSheet(it.id); });
+          m.appendChild(nb);
+          var meta = [BF.locLabel(it.location)];
+          var amt = BF.itemAmount(it);
+          if (amt) meta.push(amt);
+          var ex = BF.expiryText(it.expiry);
+          if (ex) meta.push(ex);
+          m.appendChild(BF.el('div', 'bf-meta', meta.join(' \u00b7 ')));
+          r.appendChild(m);
+          var acts = BF.el('div', 'bf-row-acts');
+          acts.appendChild(BF.button('Ate it', 'bf-btn-primary bf-btn-sm', function () { BF.openAteIt(it.id); }, 'Ate it: ' + iname));
+          r.appendChild(acts);
+          card.appendChild(r);
+        });
+        g.appendChild(card);
+        form.appendChild(g);
+      }
+    }
+
+    var nameIn = BF.input({ placeholder: 'e.g. Mohinga', value: name0 });
+    var nameWrap = BF.labelled('Name', nameIn);
+    var err = BF.el('p', 'bf-err', '');
+    err.hidden = true;
+    err.setAttribute('role', 'alert');
+    nameWrap.appendChild(err);
+    nameIn.addEventListener('input', function () { err.hidden = true; });
+    form.appendChild(nameWrap);
+
+    var syncType = function () {};
+    var typeFs = BF.pillGroup('Type', BF.CAT_PILLS, function () { return st.cat; }, function (v) { st.cat = v; syncType(); });
+    form.appendChild(typeFs);
+
+    // Made by: optional; tap the chosen one again to clear it.
+    var madeFs = BF.el('fieldset', 'bf-fieldset');
+    madeFs.appendChild(BF.el('legend', 'bf-label', 'Made by (optional)'));
+    var madeRow = BF.el('div', 'bf-pills');
+    var madeBtns = BF.MADE_PILLS.map(function (m) {
+      var b = BF.el('button', 'bf-pill', m[1]);
+      b.type = 'button';
+      b.addEventListener('click', function () { st.made = st.made === m[0] ? null : m[0]; syncType(); });
+      madeRow.appendChild(b);
+      return b;
+    });
+    madeFs.appendChild(madeRow);
+    form.appendChild(madeFs);
+
+    var ingWrap = BF.el('div', 'bf-form bf-ing-fields');
+    var ingIn = BF.input({ tag: 'textarea', placeholder: 'Pork / Chicken\nGarlic\nRice', value: old ? BF.ingredientsOf(old).join('\n') : '' });
+    ingIn.rows = 4;
+    ingWrap.appendChild(BF.labelled('Ingredients (optional, one per line; "/" for either)', ingIn));
+    var addRow = BF.el('div', 'bf-ing-add');
+    var addIn = BF.input({ placeholder: 'Add an ingredient' });
+    addIn.setAttribute('list', 'bf-ing-names');
+    addIn.setAttribute('aria-label', 'Add an ingredient');
+    var addIt = function () {
+      var v = addIn.value.trim();
+      if (!v) return;
+      var cur = ingIn.value.replace(/\s+$/, '');
+      ingIn.value = cur ? cur + '\n' + v : v;
+      addIn.value = '';
+      addIn.focus();
+    };
+    addIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addIt(); } });
+    addRow.appendChild(addIn);
+    addRow.appendChild(BF.button('Add', 'bf-btn-sm', addIt, 'Add this ingredient'));
+    ingWrap.appendChild(addRow);
+    ingWrap.appendChild(BF.datalist('bf-ing-names', BF.ingredientNames()));
+    form.appendChild(ingWrap);
+
+    var recipe = BF.el('div', 'bf-form bf-recipe-fields');
+    var stepsIn = BF.input({ tag: 'textarea', placeholder: 'Wash the rice\nFry the garlic\nAdd the pork, 10 min', value: old ? BF.stepsOf(old).join('\n') : '' });
+    stepsIn.rows = 5;
+    recipe.appendChild(BF.labelled('Recipe steps (optional, one per line)', stepsIn));
+    var linkIn = BF.input({ type: 'url', placeholder: 'https://\u2026 (YouTube, a website)', value: old && old.recipe_url ? String(old.recipe_url) : '' });
+    var linkWrap = BF.labelled('Recipe link (optional)', linkIn);
+    var linkErr = BF.el('p', 'bf-err', 'Starts with https://');
+    linkErr.hidden = true;
+    linkWrap.appendChild(linkErr);
+    linkIn.addEventListener('input', function () { linkErr.hidden = true; });
+    recipe.appendChild(linkWrap);
+    form.appendChild(recipe);
+
+    syncType = function () {
+      typeFs._sync();
+      var dish = st.cat !== 'ingredient' && st.cat !== 'household';
+      madeFs.hidden = !dish;
+      ingWrap.hidden = !dish;
+      recipe.hidden = !dish || st.made === 'outside';
+      madeBtns.forEach(function (b, i) {
+        var on = BF.MADE_PILLS[i][0] === st.made;
+        b.classList.toggle('is-on', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    };
+    syncType();
+
+    var notesIn = BF.input({ value: old && old.notes != null ? String(old.notes) : '' });
+    form.appendChild(BF.labelled('Notes (optional)', notesIn));
+
+    var save = BF.button(old ? 'Save' : 'Add', 'bf-btn-gold bf-btn-wide');
+    save.addEventListener('click', async function () {
+      var name = nameIn.value.trim();
+      var problem = !name ? 'Needs a name' : (BF.dishByName(name, old ? old.id : null) ? 'Already in the library' : '');
+      if (problem) {
+        err.textContent = problem;
+        err.hidden = false;
+        BF.shake(nameIn);
+        nameIn.focus();
+        return;
+      }
+      var link = linkIn.value.trim();
+      if (link && !/^https?:\/\/\S+$/i.test(link)) {
+        if (/^[\w-]+(\.[\w-]+)+\S*$/.test(link)) link = 'https://' + link;
+        else { linkErr.hidden = false; BF.shake(linkIn); linkIn.focus(); return; }
+      }
+      var made = st.cat === 'ingredient' || st.cat === 'household' ? null : st.made;
+      var lines = BF.ingredientLines(ingIn.value);
+      var row = {
+        name: name,
+        kind: BF.kindFor(st.cat, made),
+        category: st.cat,
+        made_by: made,
+        ingredients: lines,
+        steps: BF.cleanSteps(stepsIn.value),
+        recipe_url: link || null,
+        notes: notesIn.value.trim() || null
+      };
+      // Ingredient names (each alternative) not in the Library yet join it as Ingredients.
+      var fresh = [];
+      if (st.cat !== 'household') lines.forEach(function (l) {
+        BF.altsOf(l).forEach(function (a) {
+          if (BF.sameName(a, name) || BF.dishByName(a) || fresh.some(function (f) { return BF.sameName(f, a); })) return;
+          fresh.push(a);
+        });
+      });
+      // The Library is the one list of names: linked items take a new name (Ready stays the item's own).
+      var linked = old ? BF.data.items.filter(function (it) { return String(it.dish_id) === String(old.id); }) : [];
+      var fix = linked.filter(function (it) { return !BF.exactName(it.name, name); }).map(function (it) { return it.id; });
+      var renamed = old && !BF.exactName(old.name, name);
+      var added = 0;
+      var ok = await BF.sheetSave(save, async function () {
+        if (old) BF.q(await BF.sb.from('bf_dishes').update(row).eq('id', old.id));
+        else BF.q(await BF.sb.from('bf_dishes').insert(row));
+        for (var i = 0; i < fix.length; i += 100) {
+          BF.q(await BF.sb.from('bf_items').update({ name: name }).in('id', fix.slice(i, i + 100)));
+        }
+        if (renamed) await BF.renameBoardLabels(old.id, name);
+        if (fresh.length) {
+          var res = await BF.sb.from('bf_dishes').insert(fresh.map(function (n) {
+            return { name: n, kind: 'ingredient', category: 'ingredient', made_by: null };
+          })).select('id');
+          if (!res.error) added = (res.data || []).length;
+          else {
+            for (var j = 0; j < fresh.length; j++) { if (await BF.ensureDish(fresh[j], 'ingredient') != null) added++; }
+          }
+        }
+      });
+      if (ok) BF.toast((old ? 'Saved ' : 'Added ') + name + (added ? ' \u00b7 ' + BF.plural(added, 'new ingredient', 'new ingredients') : ''));
+    });
+    form.appendChild(save);
+
+    if (old) {
+      form.appendChild(BF.button('Delete', 'bf-btn-ghost bf-btn-wide', function () {
+        BF.closeSheet();
+        BF.deleteDish(old.id);
+      }));
+    }
+    box.appendChild(form);
+  });
+};
+
+/* ---------- Library (replaces batch O's): A-Z, plus a Household group ---------- */
+BF.renderLibrary = function () {
+  var ui = BF.libUI || BF.buildLibraryUI();
+  BF.applyFavs();
+  ui.fbtns.forEach(function (b) {
+    var on = b._val === BF._libFilter;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  var list = ui.list;
+  list.replaceChildren();
+  if (!BF.lib.loaded) {
+    if (BF.lib.error) list.appendChild(BF.emptyCard('Couldn\'t load the library. Reopen the app to retry.'));
+    return;
+  }
+  var banner = BF.linkBanner();
+  if (banner) list.appendChild(banner);
+  var all = BF.lib.dishes.slice().sort(BF.byName);
+  if (!all.length) {
+    list.appendChild(BF.emptyCard('Nothing yet. Add a dish or an ingredient with +, or Paste a list.'));
+    return;
+  }
+  var f = BF._libFilter;
+  var shown = all.filter(function (d) {
+    var c = BF.catOf(d);
+    if (f === 'fav') return !!d.favourite;
+    if (f === 'while') return c !== 'ingredient' && c !== 'household' && BF.haventHad(d);
+    if (f === 'recipe') return BF.hasRecipe(d);
+    if (BF.CATS.indexOf(f) >= 0) return c === f;
+    return true;
+  });
+  var needle = ui.search.value.trim().toLowerCase();
+  if (needle) shown = shown.filter(function (d) { return String(d.name == null ? '' : d.name).toLowerCase().indexOf(needle) >= 0; });
+  if (!shown.length) {
+    var msg = needle ? 'Nothing matches.'
+      : f === 'fav' ? 'No favourites yet. Tap the star on a dish.'
+      : f === 'while' ? 'Nothing here \u2013 you\'ve had everything lately.'
+      : f === 'recipe' ? 'No recipes yet. Open a homemade dish, Edit, and add steps or a link.'
+      : 'Nothing here yet.';
+    list.appendChild(BF.emptyCard(msg));
+    return;
+  }
+  var force = !!needle || BF.CATS.indexOf(f) >= 0 || f === 'recipe';
+  var of = function (c) { return shown.filter(function (d) { return BF.catOf(d) === c; }); };
+  var meals = of('meal');
+  var sides = of('side');
+  var ings = of('ingredient');
+  var hh = of('household');
+  if (meals.length || sides.length) {
+    var g = BF.el('section', 'bf-lib-group');
+    g.appendChild(BF.groupHead('Dishes', String(meals.length + sides.length)));
+    if (meals.length) g.appendChild(BF.note('lib:meal', 'Meals', meals.map(BF.dishLine), BF.NOTE_TONE.meal, force));
+    if (sides.length) g.appendChild(BF.note('lib:side', 'Sides & snacks', sides.map(BF.dishLine), BF.NOTE_TONE.side, force));
+    list.appendChild(g);
+  }
+  if (ings.length) {
+    var gi = BF.el('section', 'bf-lib-group');
+    gi.appendChild(BF.groupHead('Ingredients', String(ings.length)));
+    gi.appendChild(BF.note('lib:ingredient', 'Ingredients', ings.map(BF.dishLine), BF.NOTE_TONE.ingredient, force));
+    list.appendChild(gi);
+  }
+  if (hh.length) {
+    var gh = BF.el('section', 'bf-lib-group');
+    gh.appendChild(BF.groupHead('Household', String(hh.length)));
+    gh.appendChild(BF.note('lib:household', 'Household', hh.map(BF.dishLine), BF.NOTE_TONE.household, force));
+    list.appendChild(gh);
+  }
+};
+
+/* ---------- item sheet (replaces batch O's): Left, Status hidden for Household, leftover timer ---------- */
+BF.openItemSheet = function (id) {
+  var old = id == null ? null : BF.findItem(id);
+  if (id != null && !old) return;
+  var st = old ? {
+    name: String(old.name == null ? '' : old.name),
+    count: old.count == null ? null : old.count,
+    unit: BF.unitOf(old),
+    location: old.location || null,
+    expiry: old.expiry ? String(old.expiry).slice(0, 10) : null,
+    ready: !!old.ready,
+    leftover: !!old.leftover,
+    notes: old.notes == null ? '' : String(old.notes),
+    dish_id: old.dish_id == null ? null : old.dish_id
+  } : { name: '', count: null, unit: null, location: 'fridge', expiry: null, ready: false, leftover: false, notes: '', dish_id: null };
+  st.cat = null;           // chosen type for a new Library entry (null = follow the guess)
+  st.readyTouched = !!old; // a new item's Ready to heat follows its Library type until tapped
+  st.level = old && old.level != null ? Number(old.level) : null;
+  if (st.dish_id != null && !BF.findDish(st.dish_id)) st.dish_id = null;
+
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', old ? st.name : 'Add to the fridge'));
+    var form = BF.el('div', 'bf-form');
+    var syncLib = function () {};
+
+    var nameIn = BF.input({ placeholder: 'e.g. Pork Curry', value: st.name, suggest: true });
+    var nameWrap = BF.labelled('Name', nameIn);
+    var err = BF.el('p', 'bf-err', 'Needs a name');
+    err.hidden = true;
+    err.setAttribute('role', 'alert');
+    nameWrap.appendChild(err);
+    var renameBtn = BF.button('Rename in the Library', 'bf-btn-ghost bf-btn-sm bf-rename-lib', function () {
+      var d = target();
+      if (d) BF.openDishSheet(d.id);
+    });
+    nameWrap.appendChild(renameBtn);
+    form.appendChild(nameWrap);
+
+    var sel = document.createElement('select');
+    sel.className = 'bf-field';
+    var opt = function (value, text) {
+      var o = document.createElement('option');
+      o.value = value;
+      o.textContent = text;
+      sel.appendChild(o);
+    };
+    opt('', 'Type a name');
+    BF.lib.dishes.slice().sort(BF.byName).forEach(function (d) {
+      opt(String(d.id), String(d.name == null ? '' : d.name) + ' (' + BF.catLabel(BF.catOf(d)).toLowerCase() + ')');
+    });
+    sel.value = st.dish_id == null ? '' : String(st.dish_id);
+    var libWrap = BF.labelled('In the Library', sel);
+    var libNote = BF.el('p', 'bf-hint', '');
+    libWrap.appendChild(libNote);
+    form.appendChild(libWrap);
+    var guess = function () { return BF.guessCat([{ ready: st.ready, leftover: st.leftover, location: st.location }]); };
+    var catFs = BF.pillGroup('New in the Library as', BF.CAT_PILLS,
+      function () { return st.cat || guess(); }, function (v) { st.cat = v; syncLib(); });
+    form.appendChild(catFs);
+    var target = function () {
+      if (sel.value) return BF.findDish(sel.value);
+      var n = nameIn.value.trim();
+      return n ? BF.dishByName(n) : null;
+    };
+
+    // Amount (as batch N)
+    var cfs = BF.el('fieldset', 'bf-fieldset bf-amt');
+    cfs.appendChild(BF.el('legend', 'bf-label', 'Amount'));
+    var counter = BF.el('div', 'bf-counter');
+    var val = BF.el('span', 'bf-counter-val');
+    val.setAttribute('aria-live', 'polite');
+    var showCount = function () { val.textContent = st.count == null ? '-' : String(st.count); };
+    counter.appendChild(BF.button('-', 'bf-square', function () {
+      if (st.count == null) return;
+      st.count = st.count <= 1 ? null : st.count - 1;
+      showCount();
+    }, 'One less'));
+    counter.appendChild(val);
+    counter.appendChild(BF.button('+', 'bf-square', function () {
+      st.count = st.count == null ? 1 : st.count + 1;
+      showCount();
+    }, 'One more'));
+    counter.appendChild(BF.button('clear', 'bf-btn-ghost bf-btn-sm', function () { st.count = null; showCount(); }, 'Clear count'));
+    cfs.appendChild(counter);
+    var amtWrap = BF.el('div', 'bf-amt-field');
+    var amtIn = BF.input({ type: 'number', placeholder: 'e.g. 500' });
+    amtIn.min = '0';
+    amtIn.step = '1';
+    amtIn.setAttribute('inputmode', 'numeric');
+    var amtUnit = BF.el('span', 'bf-amt-unit', '');
+    amtWrap.appendChild(amtIn);
+    amtWrap.appendChild(amtUnit);
+    cfs.appendChild(amtWrap);
+    amtIn.addEventListener('input', function () {
+      var v = amtIn.value.trim();
+      var n = Math.round(Number(v));
+      st.count = v === '' || !(n >= 0) ? null : n;
+    });
+    var unitRow = BF.el('div', 'bf-pills bf-unit-pills');
+    unitRow.setAttribute('role', 'group');
+    unitRow.setAttribute('aria-label', 'Unit');
+    var unitBtns = BF.UNITS.map(function (u) {
+      var b = BF.el('button', 'bf-pill', u[1]);
+      b.type = 'button';
+      b.addEventListener('click', function () { st.unit = u[0]; showAmount(); });
+      unitRow.appendChild(b);
+      return b;
+    });
+    cfs.appendChild(unitRow);
+    var showAmount = function () {
+      counter.hidden = !!st.unit;
+      amtWrap.hidden = !st.unit;
+      amtUnit.textContent = st.unit || '';
+      amtIn.setAttribute('aria-label', 'Amount in ' + (st.unit === 'ml' ? 'millilitres' : 'grams'));
+      amtIn.value = st.count == null ? '' : String(st.count);
+      showCount();
+      unitBtns.forEach(function (b, i) {
+        var on = BF.UNITS[i][0] === st.unit;
+        b.classList.toggle('is-on', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    };
+    showAmount();
+    form.appendChild(cfs);
+
+    // Left in the open pack (null = full)
+    var leftFs = BF.pillGroup('Left', BF.LEVELS, function () { return st.level; }, function (v) { st.level = v; });
+    leftFs.classList.add('bf-left');
+    form.appendChild(leftFs);
+
+    // Where
+    form.appendChild(BF.pillGroup('Where', BF.LOCATIONS,
+      function () { return st.location; }, function (v) { st.location = v; syncLib(); }));
+
+    // Status: two independent switches
+    var stFs = BF.el('fieldset', 'bf-fieldset bf-status');
+    stFs.appendChild(BF.el('legend', 'bf-label', 'Status'));
+    var stRow = BF.el('div', 'bf-pills');
+    var readyPill = BF.togglePill('Ready to heat', function () { return st.ready; }, function (v) { st.ready = v; st.readyTouched = true; syncLib(); });
+    stRow.appendChild(readyPill);
+    stRow.appendChild(BF.togglePill('Leftover', function () { return st.leftover; }, function (v) {
+      st.leftover = v;
+      // Leftover timer: no expiry yet -> 3 days from today.
+      if (v && !st.expiry) { st.expiry = BF.addDays(3); dateIn.value = st.expiry; off._sync(); }
+      syncLib();
+    }));
+    stFs.appendChild(stRow);
+    form.appendChild(stFs);
+    var syncReadyPill = function () {
+      readyPill.classList.toggle('is-on', !!st.ready);
+      readyPill.setAttribute('aria-pressed', st.ready ? 'true' : 'false');
+    };
+
+    // Goes off
+    var dateIn = BF.input({ type: 'date', value: st.expiry || '' });
+    dateIn.setAttribute('aria-label', 'Goes off on');
+    var offOpts = [[null, 'Not sure'], [0, 'Today'], [1, 'Tomorrow'], [3, '3 days'], [7, 'A week']];
+    var off = BF.pillGroup('Goes off', offOpts, function () {
+      if (!st.expiry) return null;
+      for (var i = 1; i < offOpts.length; i++) {
+        if (BF.addDays(offOpts[i][0]) === st.expiry) return offOpts[i][0];
+      }
+      return undefined;
+    }, function (v) {
+      st.expiry = v === null ? null : BF.addDays(v);
+      dateIn.value = st.expiry || '';
+    });
+    dateIn.addEventListener('change', function () { st.expiry = dateIn.value || null; off._sync(); });
+    off._row.appendChild(dateIn);
+    form.appendChild(off);
+
+    // Bought: date and time (added_at)
+    var bought0 = BF.toLocalInput(old ? old.added_at : null);
+    var boughtIn = BF.input({ type: 'datetime-local', value: bought0 });
+    boughtIn.classList.add('bf-when-in');
+    form.appendChild(BF.labelled('Bought', boughtIn));
+
+    syncLib = function () {
+      var d = target();
+      var locked = !!sel.value && !!d;
+      nameIn.readOnly = locked;
+      nameIn.classList.toggle('is-locked', locked);
+      if (locked) { nameIn.value = String(d.name == null ? '' : d.name); err.hidden = true; }
+      renameBtn.hidden = !locked;
+      var n = nameIn.value.trim();
+      catFs.hidden = !!d || !n;
+      if (d) libNote.textContent = (locked ? 'The name comes from the Library' : 'Matches ' + d.name) + ' \u00b7 ' + BF.dishLabel(d) + '.';
+      else libNote.textContent = n ? 'New name \u2013 it joins the Library when you save.' : 'Type a name \u2013 it links to the Library entry with that name.';
+      catFs._sync();
+      stFs.hidden = (d ? BF.catOf(d) : (st.cat || guess())) === 'household';
+      if (!st.readyTouched && n) {
+        st.ready = BF.readyDefault(d ? BF.catOf(d) : (st.cat || guess()));
+        syncReadyPill();
+      }
+    };
+    sel.addEventListener('change', syncLib);
+    nameIn.addEventListener('input', function () { err.hidden = true; syncLib(); });
+    syncLib();
+
+    var notesIn = BF.input({ value: st.notes, placeholder: 'about this one, e.g. from Mum' });
+    form.appendChild(BF.labelled('Notes (optional)', notesIn));
+
+    var save = BF.button('Save', 'bf-btn-gold bf-btn-wide');
+    save.addEventListener('click', async function () {
+      var typed = nameIn.value.trim();
+      if (!typed) {
+        err.hidden = false;
+        BF.shake(nameIn);
+        nameIn.focus();
+        return;
+      }
+      var d = target();
+      var cat = st.cat || guess();
+      var row = {
+        name: d ? String(d.name).trim() : typed,
+        count: st.count,
+        unit: st.count == null ? null : st.unit,
+        location: st.location,
+        expiry: st.expiry,
+        ready: !!st.ready,
+        leftover: !!st.leftover,
+        level: st.level,
+        notes: notesIn.value.trim() || null
+      };
+      if (boughtIn.value && boughtIn.value !== bought0) {
+        var at = BF.fromLocalInput(boughtIn.value);
+        if (at) row.added_at = at;
+      }
+      var ok = await BF.sheetSave(save, async function () {
+        row.dish_id = d ? d.id : await BF.ensureDish(typed, cat);
+        if (old) BF.q(await BF.sb.from('bf_items').update(row).eq('id', old.id));
+        else BF.q(await BF.sb.from('bf_items').insert(row));
+      });
+      if (ok) BF.toast(old ? 'Saved ' + row.name : 'Added ' + row.name);
+    });
+    form.appendChild(save);
+
+    if (old) {
+      var acts = BF.el('div', 'bf-sheet-acts');
+      acts.appendChild(BF.button('Ate it', 'bf-btn-primary', function () { BF.openAteIt(old.id); }));
+      acts.appendChild(BF.button('Move some\u2026', '', function () { BF.openMoveSome(old.id); }));
+      acts.appendChild(BF.button('Running low', 'bf-btn-ghost', function () { BF.closeSheet(); BF.runningLow(old.name); }));
+      acts.appendChild(BF.button('Delete', 'bf-btn-ghost', function () { BF.closeSheet(); BF.deleteItem(old.id); }));
+      form.appendChild(acts);
+    }
+    box.appendChild(form);
+  });
+};
+
+/* ---------- Ate it save (replaces batch O's): rest turned Leftover with no expiry -> 3 days ---------- */
+BF.ateSave = async function (it, o, btn) {
+  var old = Object.assign({}, it);
+  var name = String(old.name == null ? '' : old.name);
+  var unit = BF.unitOf(old);
+  var when = o.when !== undefined ? o.when : (BF._ateWhen && document.contains(BF._ateWhen.el) ? BF._ateWhen.value() : null);
+  var patch = null;
+  if (!o.gone) {
+    patch = { location: o.location, leftover: !!o.leftover || !!old.leftover };
+    if (o.leftover && !old.leftover && !old.expiry) patch.expiry = BF.addDays(3);
+    if (o.rem != null) patch.count = o.rem;
+  }
+  var h = { id: null, action: 'ate', label: name, data: {
+    restore: old, eaten_id: null, deleted: !!o.gone,
+    used: o.used == null ? null : o.used, left: o.gone ? 0 : (o.rem == null ? null : o.rem), unit: unit
+  } };
+  if (when) h.data.eaten_at = when;
+  var ok = await BF.sheetSave(btn, async function () {
+    if (o.gone) BF.q(await BF.sb.from('bf_items').delete().eq('id', old.id));
+    else BF.q(await BF.sb.from('bf_items').update(patch).eq('id', old.id));
+    var row = { item_name: name, dish_id: old.dish_id == null ? null : old.dish_id };
+    if (when) row.eaten_at = when;
+    var e = BF.q(await BF.sb.from('bf_eaten').insert(row).select('id').single());
+    h.data.eaten_id = e ? e.id : null;
+    h.id = await BF.logHistory('ate', name, h.data);
+  });
+  if (ok === false) return;
+  var msg = 'Ate ' + name;
+  if (!o.gone && o.rem != null) msg = 'Ate ' + BF.amountWords(o.used, unit) + ' of ' + name + ' \u00b7 ' + BF.amountWords(o.rem, unit) + ' left';
+  else if (!o.gone) msg = 'Ate some ' + name + ' \u00b7 rest in the ' + BF.locLabel(o.location).toLowerCase();
+  BF.toast(msg, function () { BF.putBack(h); });
+};
+
+/* ---------- Cook it save (replaces batch O's): Some left as Leftover -> goes off in 3 days ---------- */
+BF.cookItSave = async function (o, btn) {
+  var restores = o.uses.map(function (u) { return Object.assign({}, u.it); });
+  var h = { id: null, action: 'ate', label: o.dish, data: {
+    restores: restores, cooked_into: o.dish, dish_id: null, eaten_id: null, created_item_ids: [],
+    used: o.uses.map(function (u) { return { id: u.it.id, used: u.used == null ? null : u.used, gone: !!u.gone }; })
+  } };
+  if (o.when) h.data.eaten_at = o.when;
+  var dishName = o.dish;
+  var ok = await BF.sheetSave(btn, async function () {
+    var ex = BF.dishByName(o.dish);
+    var did = ex ? ex.id : await BF.ensureDish(o.dish, 'meal', 'home');
+    if (did == null) throw new Error('Library entry not saved');
+    var d = ex || BF.findDish(did);
+    dishName = d ? String(d.name == null ? o.dish : d.name).trim() : o.dish;
+    h.label = dishName;
+    h.data.cooked_into = dishName;
+    h.data.dish_id = did;
+    for (var i = 0; i < o.uses.length; i++) {
+      var u = o.uses[i];
+      if (u.gone) BF.q(await BF.sb.from('bf_items').delete().eq('id', u.it.id));
+      else if (u.rem != null) BF.q(await BF.sb.from('bf_items').update({ count: u.rem }).eq('id', u.it.id));
+    }
+    if (o.dishLeft) {
+      var ready = o.as !== 'leftover';
+      var made = BF.q(await BF.sb.from('bf_items').insert(o.places.map(function (p) {
+        return { name: dishName, dish_id: did, ready: ready, leftover: !ready, location: p.location, count: p.count == null ? null : p.count, unit: null, expiry: ready ? null : BF.addDays(3) };
+      })).select('id'));
+      h.data.created_item_ids = (made || []).map(function (x) { return x.id; });
+    } else {
+      var row = { dish_id: did, item_name: dishName };
+      if (o.when) row.eaten_at = o.when;
+      var e = BF.q(await BF.sb.from('bf_eaten').insert(row).select('id').single());
+      h.data.eaten_id = e ? e.id : null;
+    }
+    h.id = await BF.logHistory('ate', dishName, h.data);
+  });
+  if (ok === false) return;
+  var where = [];
+  (o.places || []).forEach(function (p) {
+    var l = BF.locLabel(p.location).toLowerCase();
+    if (where.indexOf(l) < 0) where.push(l);
+  });
+  BF.toast(o.dishLeft ? dishName + ' \u2192 ' + where.join(' + ') : 'Cooked and ate ' + dishName, function () { BF.putBack(h); });
+};
+
+/* ---------- Cook tab matches (replaces batch O's): a dish's own items don't count as its ingredients ---------- */
+BF.cookMatches = function () {
+  var can = [], one = [], noIng = 0;
+  BF.lib.dishes.slice().sort(BF.byName).forEach(function (d) {
+    var c = BF.catOf(d);
+    if (c !== 'meal' && c !== 'side') return;
+    var ings = BF.ingredientsOf(d);
+    if (!ings.length) { noIng++; return; }
+    var missing = ings.filter(function (x) { return !BF.lineInHouse(x, d); });
+    if (!missing.length) can.push(d);
+    else if (missing.length === 1) one.push({ dish: d, missing: missing[0], first: BF.altsOf(missing[0])[0] || missing[0] });
+  });
+  return { can: can, one: one, noIng: noIng };
+};
+
+/* ---------- Cook it sheet (replaces batch O's): same matching rule, the dish's own items excluded ---------- */
+BF.openCookIt = function (opts) {
+  opts = opts || {};
+  var from = opts.itemId != null ? BF.findItem(opts.itemId) : null;
+  var dish0 = opts.dishId != null ? BF.findDish(opts.dishId) : null;
+  var st = { as: 'ready', places: [{ location: 'fridge', count: null }] };
+  var picks = {};     // String(item id) -> { on, user, picker }
+  var extra = [];     // item ids added by hand (or the item it was opened from)
+  if (from) { picks[String(from.id)] = { on: true, user: true }; extra.push(String(from.id)); }
+
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Cook it'));
+    var form = BF.el('div', 'bf-form');
+    var dishes = BF.lib.dishes.filter(function (d) { var c = BF.catOf(d); return c === 'meal' || c === 'side'; }).slice().sort(BF.byName);
+    box.appendChild(BF.datalist('bf-cook-dishes', dishes.map(function (d) { return String(d.name == null ? '' : d.name); })));
+    var dishIn = BF.input({ placeholder: 'e.g. Fried rice', value: dish0 ? String(dish0.name) : '' });
+    dishIn.setAttribute('list', 'bf-cook-dishes');
+    var dishWrap = BF.labelled('Dish', dishIn);
+    var err = BF.el('p', 'bf-err', 'Needs a dish name');
+    err.hidden = true;
+    err.setAttribute('role', 'alert');
+    dishWrap.appendChild(err);
+    var dishNote = BF.el('p', 'bf-hint', '');
+    dishWrap.appendChild(dishNote);
+    var recipeBox = BF.el('div', 'bf-sheet-acts');
+    dishWrap.appendChild(recipeBox);
+    form.appendChild(dishWrap);
+
+    var ingBox = BF.el('div', 'bf-cook-ings');
+    form.appendChild(ingBox);
+    var addBox = BF.el('div', 'bf-cook-addbox');
+    form.appendChild(addBox);
+
+    var when = BF.whenField('When');
+    form.appendChild(when.el);
+
+    var acts = BF.el('div', 'bf-ate-acts');
+    var allBtn = BF.button('All eaten', 'bf-btn-primary bf-btn-wide bf-act-main');
+    var someBtn = BF.button('Some left', 'bf-btn-wide');
+    acts.appendChild(allBtn);
+    acts.appendChild(someBtn);
+    form.appendChild(acts);
+    var rest = BF.cookRestBox(st);
+    rest.hidden = true;
+    form.appendChild(rest);
+    var keep = BF.button('Put it away', 'bf-btn-gold bf-btn-wide');
+    keep.hidden = true;
+    form.appendChild(keep);
+
+    var pickOf = function (it) {
+      var p = picks[String(it.id)];
+      if (!p.picker) {
+        p.picker = BF.amountPicker(it, { legend: 'How much did you use', all: true, some: true });
+        p.picker.onChange = sync;
+      }
+      return p.picker;
+    };
+    var itemRow = function (it) {
+      var p = picks[String(it.id)];
+      var wrap = BF.el('div', 'bf-cook-item');
+      var lab = BF.el('label', 'bf-check');
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!p.on;
+      lab.appendChild(cb);
+      var txt = [String(it.name == null ? '' : it.name), BF.locLabel(it.location)];
+      var amt = BF.itemAmount(it);
+      if (amt) txt.push(amt);
+      lab.appendChild(BF.el('span', 'bf-check-text', txt.join(' \u00b7 ')));
+      wrap.appendChild(lab);
+      var pk = pickOf(it);
+      pk.el.hidden = !p.on;
+      wrap.appendChild(pk.el);
+      cb.addEventListener('change', function () { p.on = cb.checked; p.user = true; pk.el.hidden = !p.on; sync(); });
+      return wrap;
+    };
+    var target = function () {
+      var n = dishIn.value.trim();
+      return n ? BF.dishByName(n) : null;
+    };
+    var draw = function () {
+      ingBox.replaceChildren();
+      addBox.replaceChildren();
+      var d = target();
+      var n = dishIn.value.trim();
+      dishNote.textContent = !n ? 'Pick a meal or side, or type a new one.' : d ? BF.dishLabel(d) + '.' : 'New dish \u2013 it joins the Library as a homemade Meal.';
+      recipeBox.replaceChildren();
+      if (d && BF.hasRecipe(d)) recipeBox.appendChild(BF.button('\ud83d\udcd6 Recipe', 'bf-btn-gold bf-btn-sm', function () { BF.openRecipe(d.id); }));
+      recipeBox.hidden = !recipeBox.childNodes.length;
+      var shown = {};
+      var lines = d ? BF.ingredientsOf(d) : [];
+      if (lines.length) ingBox.appendChild(BF.el('p', 'bf-label', 'What went in'));
+      lines.forEach(function (line) {
+        var alts = BF.altsOf(line);
+        var matches = BF.data.items.filter(function (it) { return BF.itemMatches(it, alts, d); });
+        var sec = BF.el('div', 'bf-cook-line');
+        sec.appendChild(BF.el('p', 'bf-cook-line-name', line));
+        if (!matches.length) sec.appendChild(BF.el('p', 'bf-hint', 'Not in the house'));
+        matches.forEach(function (it) { if (!picks[String(it.id)]) picks[String(it.id)] = { on: false, user: false }; });
+        var anyOn = matches.some(function (it) { return picks[String(it.id)].on; });
+        var anyUser = matches.some(function (it) { return picks[String(it.id)].user; });
+        if (matches.length && !anyOn && !anyUser) picks[String(matches[0].id)].on = true;
+        matches.forEach(function (it) {
+          if (shown[String(it.id)]) return;
+          shown[String(it.id)] = true;
+          sec.appendChild(itemRow(it));
+        });
+        ingBox.appendChild(sec);
+      });
+      var others = extra.filter(function (k) { return !shown[k] && BF.itemById(k); });
+      if (others.length) {
+        var os = BF.el('div', 'bf-cook-line');
+        os.appendChild(BF.el('p', 'bf-cook-line-name', lines.length ? 'Also used' : 'Used'));
+        others.forEach(function (k) { shown[k] = true; os.appendChild(itemRow(BF.itemById(k))); });
+        ingBox.appendChild(os);
+      }
+      var rest = BF.data.items.filter(function (it) { return !shown[String(it.id)]; });
+      if (rest.length) {
+        var selAdd = document.createElement('select');
+        selAdd.className = 'bf-field';
+        selAdd.setAttribute('aria-label', 'Add another item');
+        var o0 = document.createElement('option');
+        o0.value = '';
+        o0.textContent = '+ add another item';
+        selAdd.appendChild(o0);
+        rest.slice().sort(BF.byName).forEach(function (it) {
+          var o = document.createElement('option');
+          o.value = String(it.id);
+          var amt = BF.itemAmount(it);
+          o.textContent = String(it.name == null ? '' : it.name) + ' (' + BF.locLabel(it.location).toLowerCase() + (amt ? ', ' + amt : '') + ')';
+          selAdd.appendChild(o);
+        });
+        selAdd.addEventListener('change', function () {
+          var k = selAdd.value;
+          if (!k) return;
+          picks[k] = picks[k] || {};
+          picks[k].on = true;
+          picks[k].user = true;
+          if (extra.indexOf(k) < 0) extra.push(k);
+          draw();
+        });
+        addBox.appendChild(selAdd);
+      }
+      sync();
+    };
+    var ticked = function () {
+      return Object.keys(picks).filter(function (k) { return picks[k].on && BF.itemById(k); }).map(function (k) { return BF.itemById(k); });
+    };
+    var sync = function () {
+      var bad = ticked().some(function (it) { var p = pickOf(it); return p.mode !== 'none' && p.used() == null; });
+      allBtn.disabled = bad;
+      someBtn.disabled = bad;
+      keep.disabled = bad;
+    };
+    var dishName = function () {
+      var n = dishIn.value.trim();
+      if (n) return n;
+      err.hidden = false;
+      BF.shake(dishIn);
+      dishIn.focus();
+      return null;
+    };
+    var plan = function (n, dishLeft) {
+      return {
+        dish: n, dishLeft: dishLeft, when: when.value(), as: st.as,
+        places: st.places.map(function (p) { return { location: p.location, count: p.count }; }),
+        uses: ticked().map(function (it) {
+          var p = pickOf(it);
+          var gone = p.isAll();
+          return { it: it, gone: gone, used: p.used(), rem: gone ? 0 : p.rem() };
+        })
+      };
+    };
+    dishIn.addEventListener('input', function () { err.hidden = true; draw(); });
+    allBtn.addEventListener('click', function () {
+      var n = dishName();
+      if (n) BF.cookItSave(plan(n, false), allBtn);
+    });
+    someBtn.addEventListener('click', function () {
+      if (!dishName()) return;
+      someBtn.hidden = true;
+      rest.hidden = false;
+      keep.hidden = false;
+      keep.focus();
+    });
+    keep.addEventListener('click', function () {
+      var n = dishName();
+      if (n) BF.cookItSave(plan(n, true), keep);
+    });
+    draw();
+    box.appendChild(form);
+  });
 };
 
 BF.init();
