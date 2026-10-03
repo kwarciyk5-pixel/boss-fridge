@@ -891,6 +891,58 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 
 /* ---------- batch R: performance only (no style changes) ---------- */
 
+/* ---------- batch S: 6-tab bar, Choose from Library, type pills, Eaten tab ---------- */
+.bf-nav { grid-template-columns: repeat(6, 1fr); gap: 2px; padding: 5px; }
+.bf-nav-btn { min-width: 0; }
+.bf-nav-label { font-size: 10.5px; white-space: nowrap; }
+@media (max-width: 380px) {
+  .bf-nav { padding: 4px; width: calc(100% - 16px); }
+  .bf-nav-label { font-size: 10px; }
+}
+.bf-choose { display: flex; flex-direction: column; gap: 8px; }
+.bf-choose .bf-label { margin: 0; }
+.bf-chosen { margin: 0; padding: 8px 12px; border-radius: 12px; background: var(--bf-ice); font-weight: 900; font-size: 15px; overflow-wrap: anywhere; }
+.bf-pick-list { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; border: 2px solid var(--bf-line); border-radius: 14px; }
+.bf-pick {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; min-height: 44px; padding: 8px 12px;
+  border: 0; border-top: 1.5px dashed var(--bf-line); background: transparent; color: var(--bf-ink);
+  font-family: var(--bf-font); text-align: left; cursor: pointer;
+}
+.bf-pick:first-child { border-top: 0; }
+.bf-pick.is-on { background: var(--bf-ice); }
+.bf-pick:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: -3px; }
+.bf-pick-name { flex: 1 1 auto; min-width: 0; font-weight: 800; font-size: 15px; overflow-wrap: anywhere; }
+.bf-pick-type { flex: 0 0 auto; font-weight: 700; font-size: 12px; color: var(--bf-muted); }
+.bf-type-pills { margin-top: 6px; }
+.bf-type-pills .bf-pill { min-height: 36px; padding: 0 10px; font-size: 13.5px; }
+.bf-new-row .bf-row-main { width: 100%; }
+.bf-eat-dash { display: grid; grid-template-columns: 1fr 1.6fr; gap: 12px; }
+.bf-eat-card { display: flex; flex-direction: column; gap: 4px; }
+.bf-eat-title { margin: 0; font-size: 16px; }
+.bf-eat-big { margin: 2px 0 0; font-family: var(--bf-font-head); font-weight: 700; font-size: 40px; line-height: 1; }
+.bf-eat-top, .bf-eat-while { margin: 4px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.bf-eat-top li, .bf-eat-while li { display: flex; gap: 8px; align-items: baseline; }
+.bf-eat-name { flex: 1 1 auto; min-width: 0; font-weight: 800; font-size: 14px; overflow-wrap: anywhere; }
+.bf-eat-n, .bf-eat-last { flex: 0 0 auto; font-weight: 800; font-size: 12.5px; color: var(--bf-muted); white-space: nowrap; }
+.bf-eat-sub { font-size: 12px; }
+.bf-cal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.bf-cal-title { margin: 0; font-size: 18px; }
+.bf-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.bf-cal-wd { text-align: center; font-weight: 900; font-size: 11px; color: var(--bf-muted); padding-bottom: 2px; }
+.bf-cal-day {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 3px;
+  min-width: 0; min-height: 46px; padding: 5px 0 4px; border: 1.5px solid var(--bf-line); border-radius: 10px;
+  background: var(--bf-card); color: var(--bf-ink); font-family: var(--bf-font); cursor: pointer;
+}
+.bf-cal-day.is-today { border-color: var(--bf-blue); border-width: 2.5px; }
+.bf-cal-day.is-sel { background: var(--bf-ice); }
+.bf-cal-day:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 1px; }
+.bf-cal-num { font-weight: 900; font-size: 13px; line-height: 1; }
+.bf-cal-dots { display: flex; align-items: center; gap: 2px; min-height: 8px; }
+.bf-cal-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--bf-gold); }
+.bf-cal-more { font-size: 9.5px; font-weight: 900; color: var(--bf-muted); line-height: 1; }
+.bf-cal-dayview .bf-rows { margin-top: 6px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -1027,7 +1079,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v29';
+var BF_VERSION = 'bf-v30';
 
 var BF = {
   sb: null,
@@ -13658,6 +13710,642 @@ BF.boot = function () {
   var clear = function () { if (BF._rBoot === me) BF._rBoot = null; };
   p.then(clear, clear);
   return p;
+};
+
+/* ===================== batch S: add from the Library only, list tags, "Ready", Eaten tab ===================== */
+
+/* ---------- plumbing: renderers that follow batch R's visible-tab scheduling and share one memo per pass ---------- */
+BF.withMemo = function (fn) {
+  return function () {
+    var outer = BF._memoDepth === 0;
+    if (outer) BF._memo = {};
+    BF._memoDepth++;
+    try { return fn.apply(this, arguments); } finally {
+      BF._memoDepth--;
+      if (outer) BF._memo = null;
+    }
+  };
+};
+/* Install (or replace) the real renderer for a tab; BF[name] defers it while the tab is hidden. */
+BF.sTab = function (name, tab, real) {
+  BF.R_TABS[name] = tab;
+  BF._rReal[name] = BF.withMemo(real);
+  BF[name] = function () {
+    if (BF.screen === 'app' && BF.tab !== BF.R_TABS[name]) {
+      BF._rDirty[name] = true;
+      BF.rSchedule();
+      return;
+    }
+    delete BF._rDirty[name];
+    return BF._rReal[name].apply(this, arguments);
+  };
+};
+/* Add work after an existing tab renderer (keeps its scheduling). */
+BF.sAfter = function (name, after) {
+  var prev = BF._rReal[name];
+  BF.sTab(name, BF.R_TABS[name], function () {
+    var out = prev.apply(this, arguments);
+    after();
+    return out;
+  });
+};
+
+/* ---------- new fridge items must point at a Library entry ---------- */
+/* Every bf_items insert of a NEW row (no id) without dish_id is refused (restores / imports keep their id). */
+BF.sHook = function () {
+  if (!BF.sb || BF.sb.__bfS || typeof BF.sb.from !== 'function') return;
+  var from = BF.sb.from;
+  BF.sb.from = function (t) {
+    var q = from.apply(this, arguments);
+    if (t === 'bf_items' && q && typeof q.insert === 'function') {
+      var ins = q.insert;
+      q.insert = function (values) {
+        var rows = Array.isArray(values) ? values : [values];
+        if (rows.some(function (r) { return r && r.id == null && r.dish_id == null; })) {
+          throw new Error('Not in the Food Library');
+        }
+        return ins.apply(this, arguments);
+      };
+    }
+    return q;
+  };
+  BF.sb.__bfS = true;
+};
+var _bfInitS = BF.init;
+BF.init = function () {
+  var out = _bfInitS.apply(this, arguments);
+  BF.sHook();
+  return out;
+};
+
+/* Library search: case- and space-insensitive substring, English or Burmese. */
+BF.searchKey = function (s) { return String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ''); };
+BF.libSearch = function (q) {
+  var k = BF.searchKey(q);
+  return BF.lib.dishes.filter(function (d) { return !k || BF.searchKey(d.name).indexOf(k) >= 0; }).slice().sort(BF.byName);
+};
+
+/* ---------- item sheet: new items are chosen from the Library; "Ready" ---------- */
+BF.PICK_MAX = 60;
+var _bfOpenItemSheetS = BF.openItemSheet;
+BF.openItemSheet = function (id) {
+  _bfOpenItemSheetS.apply(this, arguments);
+  var body = BF.$('bf-sheet-body');
+  if (!body) return;
+  Array.prototype.forEach.call(body.querySelectorAll('.bf-status .bf-pill'), function (b) {
+    if (b.textContent === 'Ready to heat') b.textContent = 'Ready';
+  });
+  if (id != null) return;
+  var nameIn = body.querySelector('input[list="bf-suggest"]');
+  var sel = body.querySelector('select.bf-field');
+  var save = Array.prototype.filter.call(body.querySelectorAll('button.bf-btn-gold'), function (b) { return b.textContent === 'Save'; })[0];
+  if (!nameIn || !sel || !save) return;
+  var nameWrap = nameIn.parentNode;
+  var libWrap = sel.parentNode;
+  nameWrap.hidden = true;
+  libWrap.hidden = true;
+  save.disabled = true;
+
+  var box = BF.el('section', 'bf-choose');
+  box.appendChild(BF.el('h3', 'bf-label', 'Choose from Library'));
+  var q = BF.input({ type: 'search', placeholder: 'Search the Library' });
+  q.setAttribute('aria-label', 'Search the Library');
+  box.appendChild(q);
+  box.appendChild(BF.el('p', 'bf-hint', 'Can\'t find it? Add it to the Food Library first, then pick it here.'));
+  var chosen = BF.el('p', 'bf-chosen', '');
+  chosen.hidden = true;
+  chosen.setAttribute('aria-live', 'polite');
+  box.appendChild(chosen);
+  var list = BF.el('div', 'bf-pick-list');
+  list.setAttribute('role', 'listbox');
+  list.setAttribute('aria-label', 'Library entries');
+  box.appendChild(list);
+  var more = BF.el('p', 'bf-hint', '');
+  box.appendChild(more);
+  nameWrap.parentNode.insertBefore(box, nameWrap);
+
+  var pickedId = null;
+  var draw = function () {
+    list.replaceChildren();
+    var res = BF.libSearch(q.value);
+    res.slice(0, BF.PICK_MAX).forEach(function (d) {
+      var on = String(d.id) === pickedId;
+      var b = BF.el('button', 'bf-pick' + (on ? ' is-on' : ''));
+      b.type = 'button';
+      b.setAttribute('role', 'option');
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.appendChild(BF.el('span', 'bf-pick-name', String(d.name == null ? '' : d.name)));
+      b.appendChild(BF.el('span', 'bf-pick-type', BF.catLabel(BF.catOf(d))));
+      b.addEventListener('click', function () { pick(d); });
+      list.appendChild(b);
+    });
+    more.textContent = !res.length ? 'Nothing in the Library matches.' : (res.length > BF.PICK_MAX ? 'Keep typing to narrow ' + res.length + ' entries.' : '');
+    more.hidden = !more.textContent;
+  };
+  var pick = function (d) {
+    pickedId = String(d.id);
+    if (!Array.prototype.some.call(sel.options, function (o) { return o.value === pickedId; })) {
+      var o = document.createElement('option');       // a Library entry added after the sheet opened
+      o.value = pickedId;
+      o.textContent = String(d.name == null ? '' : d.name);
+      sel.appendChild(o);
+    }
+    sel.value = pickedId;
+    sel.dispatchEvent(new Event('change'));
+    chosen.textContent = String(d.name == null ? '' : d.name) + ' \u00b7 ' + BF.catLabel(BF.catOf(d));
+    chosen.hidden = false;
+    save.disabled = false;
+    draw();
+  };
+  q.addEventListener('input', draw);
+  draw();
+};
+
+/* ---------- paste-add: Library names are added; the rest wait for a type (or Skip) ---------- */
+BF.openBulkItems = function () {
+  var st = { location: 'fridge' };
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Bulk add'));
+    var form = BF.el('div', 'bf-form');
+    form.appendChild(BF.el('p', 'bf-hint', 'One item per line. Names in the Food Library are added; for new names you pick a type next. "Kopiko x15" or "Chicken 500g" keeps the amount.'));
+    var ta = BF.input({ tag: 'textarea', placeholder: 'Carrots\n\u1000\u103c\u1000\u103a\u1025\nKopiko x15\nChicken 500g' });
+    ta.rows = 6;
+    form.appendChild(BF.labelled('Items to add, one per line', ta, true));
+    form.appendChild(BF.pillGroup('Where', BF.LOCATIONS, function () { return st.location; }, function (v) { st.location = v; }));
+    var go = BF.button('', 'bf-btn-gold bf-btn-wide');
+    var sync = function () {
+      var n = BF.cleanLines(ta.value).length;
+      go.textContent = 'Add ' + BF.plural(n, 'item', 'items');
+      go.disabled = n === 0;
+    };
+    ta.addEventListener('input', sync);
+    sync();
+    go.addEventListener('click', async function () {
+      var lines = BF.cleanLines(ta.value);
+      if (!lines.length || go.disabled) return;
+      var location = st.location;
+      var matched = [], unmatched = [];
+      lines.map(BF.parseAmount).forEach(function (p) {
+        var d = BF.libMatch(p.name);
+        if (d) matched.push({ p: p, d: d }); else unmatched.push(p);
+      });
+      if (matched.length) {
+        var label = go.textContent;
+        go.disabled = true;
+        go.textContent = 'Saving\u2026';
+        var ok = await BF.run(async function () {
+          BF.q(await BF.sb.from('bf_items').insert(matched.map(function (m) {
+            return {
+              name: String(m.d.name).trim(), count: m.p.count, unit: m.p.unit, location: location,
+              ready: BF.readyDefault(BF.catOf(m.d)), leftover: false, dish_id: m.d.id
+            };
+          })));
+        });
+        if (ok === false) { if (document.contains(go)) { go.disabled = false; go.textContent = label; } return; }
+      }
+      if (!unmatched.length) {
+        BF.closeSheet();
+        BF.toast('Added ' + BF.plural(matched.length, 'item', 'items'));
+        return;
+      }
+      BF.openNewNames(unmatched, location, matched.length);
+    });
+    form.appendChild(go);
+    box.appendChild(form);
+  });
+};
+
+BF.TYPE_PILLS = BF.CAT_PILLS;
+/* "Not in the Library yet": one tap on a type makes the Library entry and adds the item; or Skip. */
+BF.openNewNames = function (rows, location, added) {
+  var state = rows.map(function () { return 'open'; });
+  var count = added || 0;
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Not in the Library yet'));
+    var form = BF.el('div', 'bf-form');
+    form.appendChild(BF.el('p', 'bf-hint', (count ? BF.plural(count, 'item', 'items') + ' added. ' : '') + 'Pick a type to add each one to the Food Library and the fridge, or skip it.'));
+    var card = BF.el('div', 'bf-card bf-rows bf-new-names');
+    form.appendChild(card);
+    var done = BF.button('Done', 'bf-btn-wide', function () {
+      BF.closeSheet();
+      if (count) BF.toast('Added ' + BF.plural(count, 'item', 'items'));
+    });
+    var finish = function () {
+      if (state.every(function (s) { return s !== 'open'; })) done.textContent = 'Done';
+    };
+    rows.forEach(function (p, i) {
+      var r = BF.el('div', 'bf-row bf-new-row');
+      var main = BF.el('div', 'bf-row-main');
+      var amt = BF.amountText(p.count, p.unit);
+      main.appendChild(BF.el('div', 'bf-hist-name', p.name));
+      var meta = BF.el('div', 'bf-meta', amt || 'Add as:');
+      main.appendChild(meta);
+      var pills = BF.el('div', 'bf-pills bf-type-pills');
+      BF.TYPE_PILLS.forEach(function (tp) {
+        var b = BF.button(tp[1], 'bf-pill', async function () {
+          if (state[i] !== 'open') return;
+          state[i] = 'busy';
+          Array.prototype.forEach.call(r.querySelectorAll('button'), function (x) { x.disabled = true; });
+          var ok = await BF.run(async function () {
+            var did = await BF.ensureDish(p.name, tp[0]);
+            if (did == null) throw new Error('Library entry not saved');
+            var d = BF.findDish(did);
+            BF.q(await BF.sb.from('bf_items').insert({
+              name: d ? String(d.name).trim() : p.name, count: p.count, unit: p.unit, location: location,
+              ready: BF.readyDefault(tp[0]), leftover: false, dish_id: did
+            }));
+          });
+          if (ok === false) {
+            state[i] = 'open';
+            Array.prototype.forEach.call(r.querySelectorAll('button'), function (x) { x.disabled = false; });
+            return;
+          }
+          state[i] = 'added';
+          count++;
+          pills.replaceChildren();
+          meta.textContent = 'Added as ' + tp[1];
+          finish();
+        });
+        pills.appendChild(b);
+      });
+      pills.appendChild(BF.button('Skip', 'bf-pill bf-btn-ghost', function () {
+        if (state[i] !== 'open') return;
+        state[i] = 'skipped';
+        pills.replaceChildren();
+        meta.textContent = 'Skipped';
+        finish();
+      }));
+      main.appendChild(pills);
+      r.appendChild(main);
+      card.appendChild(r);
+    });
+    form.appendChild(done);
+    box.appendChild(form);
+  });
+};
+
+/* ---------- Bought (replaces batch O's): links by nameMatch; an unknown name asks for its type first ---------- */
+BF.bought = async function (id, stock, cat) {
+  var g = BF.findGrocery(id);
+  if (!g) return;
+  if (stock && !cat && !BF.libMatch(BF.parseAmount(g.name).name)) { BF.openBoughtType(id); return; }
+  var action = stock ? 'bought' : 'bought_nostock';
+  var h = { id: null, action: action, label: g.name, data: { grocery_id: id, item_id: null } };
+  var res = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_groceries')
+      .update({ status: 'bought', bought_by: BF.myEmail(), bought_at: new Date().toISOString() })
+      .eq('id', id));
+    if (stock) {
+      var p = BF.parseAmount(g.name);
+      var ex = BF.libMatch(p.name);
+      var did = ex ? ex.id : await BF.ensureDish(p.name, cat || 'ingredient');
+      if (did == null) throw new Error('Library entry not saved');
+      var d = ex || BF.findDish(did);
+      var it = BF.q(await BF.sb.from('bf_items').insert({
+        name: d ? String(d.name).trim() : p.name, location: 'fridge', dish_id: did,
+        ready: BF.readyDefault(ex ? BF.catOf(ex) : (cat || 'ingredient')), count: p.count, unit: p.unit
+      }).select('id').single());
+      h.data.item_id = it ? it.id : null;
+    }
+    h.id = await BF.logHistory(action, g.name, h.data);
+  });
+  if (res === false) return;
+  BF.toast(stock ? g.name + ' \u2192 fridge' : g.name + ' bought', function () { BF.putBack(h); });
+};
+BF.openBoughtType = function (id) {
+  var g = BF.findGrocery(id);
+  if (!g) return;
+  BF.renderShop();
+  var name = BF.parseAmount(g.name).name;
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Add to Library as'));
+    box.appendChild(BF.el('p', 'bf-hint bf-act-meta', name + ' isn\'t in the Food Library yet.'));
+    var acts = BF.el('div', 'bf-pills bf-type-pills');
+    BF.TYPE_PILLS.forEach(function (tp) {
+      acts.appendChild(BF.button(tp[1], 'bf-pill', function () { BF.closeSheet(); BF.bought(id, true, tp[0]); }));
+    });
+    box.appendChild(acts);
+  });
+};
+
+/* ---------- Fridge: banner for items that aren't in the Library ---------- */
+BF.openFixUnlinked = function () {
+  var its = BF.unlinkedItems();
+  if (!its.length) { BF.toast('Everything is in the Library'); return; }
+  var left = its.length;
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Add to Library'));
+    var form = BF.el('div', 'bf-form');
+    form.appendChild(BF.el('p', 'bf-hint', 'Link each one to its Library entry, or add it to the Library with a type.'));
+    var card = BF.el('div', 'bf-card bf-rows bf-new-names');
+    form.appendChild(card);
+    its.forEach(function (it) {
+      var name = String(it.name == null ? '' : it.name).trim();
+      var r = BF.el('div', 'bf-row bf-new-row');
+      var main = BF.el('div', 'bf-row-main');
+      main.appendChild(BF.el('div', 'bf-hist-name', name));
+      var meta = BF.el('div', 'bf-meta', BF.locLabel(it.location));
+      main.appendChild(meta);
+      var pills = BF.el('div', 'bf-pills bf-type-pills');
+      var fix = async function (patchFn, text) {
+        Array.prototype.forEach.call(pills.querySelectorAll('button'), function (x) { x.disabled = true; });
+        var ok = await BF.run(async function () {
+          var patch = await patchFn();
+          BF.q(await BF.sb.from('bf_items').update(patch).eq('id', it.id));
+        });
+        if (ok === false) { Array.prototype.forEach.call(pills.querySelectorAll('button'), function (x) { x.disabled = false; }); return; }
+        pills.replaceChildren();
+        meta.textContent = text;
+        left--;
+        if (!left) { BF.closeSheet(); BF.toast('Everything is in the Library'); }
+      };
+      var ex = BF.libMatch(name);
+      if (ex) {
+        pills.appendChild(BF.button('Link to ' + ex.name, 'bf-btn-primary bf-btn-sm', function () {
+          fix(async function () { return { dish_id: ex.id, name: String(ex.name).trim() }; }, 'Linked to ' + ex.name);
+        }));
+      }
+      BF.TYPE_PILLS.forEach(function (tp) {
+        pills.appendChild(BF.button(tp[1], 'bf-pill', function () {
+          fix(async function () {
+            var did = await BF.ensureDish(name, tp[0]);
+            if (did == null) throw new Error('Library entry not saved');
+            return { dish_id: did };
+          }, 'Added as ' + tp[1]);
+        }));
+      });
+      main.appendChild(pills);
+      r.appendChild(main);
+      card.appendChild(r);
+    });
+    form.appendChild(BF.button('Not now', 'bf-btn-ghost bf-btn-wide', function () { BF.closeSheet(); }));
+    box.appendChild(form);
+  });
+};
+BF.sAfter('renderFridge', function () {
+  var ui = BF.fridgeUI;
+  if (!ui || !BF.data.loaded || !BF.lib.loaded) return;
+  var n = BF.unlinkedItems().length;
+  if (!n) return;
+  var c = BF.el('div', 'bf-card bf-link-card bf-unlinked-card');
+  c.appendChild(BF.el('p', 'bf-link-text', BF.plural(n, 'item isn\'t', 'items aren\'t') + ' in the Library'));
+  c.appendChild(BF.button('Add to Library', 'bf-btn-primary bf-btn-sm', function () { BF.openFixUnlinked(); }));
+  ui.list.insertBefore(c, ui.list.firstChild);
+});
+
+/* ---------- Fridge lines: Running low tag; no Ready / Homemade / Outside tags ---------- */
+var _bfItemLineS = BF.itemLine;
+BF.itemLine = function (it) {
+  var line = _bfItemLineS.apply(this, arguments);
+  Array.prototype.forEach.call(line.querySelectorAll('.bf-tag-ready, .bf-tag-made'), function (t) { t.remove(); });
+  var d = it && it.dish_id != null ? BF.findDish(it.dish_id) : null;
+  var bits = line.querySelector('.bf-line-bits');
+  if (d && bits && BF.isRunningLow(d)) {
+    var tag = BF.el('span', 'bf-tag bf-tag-low', 'Running low');
+    var lo = bits.querySelector('.bf-tag-leftover');
+    bits.insertBefore(tag, lo || null);
+  }
+  return line;
+};
+
+/* ---------- Library lines: zero stock is always faded + struck; no had-text, no Ready / made-by tags ---------- */
+var _bfDishLineS = BF.dishLine;
+BF.dishLine = function (d) {
+  var line = _bfDishLineS.apply(this, arguments);
+  Array.prototype.forEach.call(line.querySelectorAll('.bf-line-when, .bf-tag-made'), function (t) { t.remove(); });
+  Array.prototype.forEach.call(line.querySelectorAll('.bf-tag'), function (t) {
+    if (t.textContent === 'Ready' || t.textContent === 'Ready to heat') t.remove();
+  });
+  if (BF.stockTotal(d) === '') line.classList.add('is-empty');
+  return line;
+};
+
+/* ---------- "Ready" wording ---------- */
+BF.COOK_AS[0][1] = 'Ready';
+BF.WHEEL_SHOW[1][1] = 'Ready only';
+var _bfWheelFilterTextS = BF.wheelFilterText;
+BF.wheelFilterText = function () {
+  return String(_bfWheelFilterTextS.apply(this, arguments)).replace('Ready to heat', 'Ready');
+};
+BF.sAfter('renderPlay', function () {
+  var ui = BF.playUI;
+  if (ui && ui.empty && /ready to heat/i.test(ui.empty.textContent)) {
+    ui.empty.textContent = ui.empty.textContent.replace(/Ready to heat/g, 'Ready').replace(/ready to heat/g, 'ready');
+  }
+});
+
+/* ---------- Eaten tab (between Library and Play) ---------- */
+BF.TABS.eaten = 'Eaten';
+(function () {
+  var play = BF.$('bf-nav-play');
+  if (play && !BF.$('bf-nav-eaten')) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.id = 'bf-nav-eaten';
+    b.className = 'bf-nav-btn';
+    b.setAttribute('data-tab', 'eaten');
+    var s = BF.svg('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2.3', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' });
+    s.appendChild(BF.svg('rect', { x: '3.5', y: '4.5', width: '17', height: '16', rx: '3' }));
+    s.appendChild(BF.svg('path', { d: 'M3.5 9.5 H20.5' }));
+    s.appendChild(BF.svg('path', { d: 'M8 2.5 V6.5' }));
+    s.appendChild(BF.svg('path', { d: 'M16 2.5 V6.5' }));
+    s.appendChild(BF.svg('circle', { cx: '12', cy: '15', r: '2.6' }));
+    b.appendChild(s);
+    b.appendChild(BF.el('span', 'bf-nav-label', 'Eaten'));
+    play.parentNode.insertBefore(b, play);
+  }
+  var playTab = BF.$('bf-tab-play');
+  if (playTab && !BF.$('bf-tab-eaten')) {
+    var sec = document.createElement('section');
+    sec.id = 'bf-tab-eaten';
+    sec.className = 'bf-panel';
+    sec.setAttribute('aria-labelledby', 'bf-nav-eaten');
+    sec.hidden = true;
+    var body = document.createElement('div');
+    body.id = 'bf-tab-eaten-body';
+    sec.appendChild(body);
+    playTab.parentNode.insertBefore(sec, playTab);
+  }
+})();
+
+BF.eatenView = { y: null, m: null, sel: null };
+BF.MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+BF.eatenName = function (e) {
+  var d = e && e.dish_id != null ? BF.findDish(e.dish_id) : null;
+  return String((d && d.name) || (e && e.item_name) || '').trim() || '(no name)';
+};
+BF.dayKey = function (ms) { return BF.ymd(new Date(ms)); };
+BF.weekStart = function (now) {
+  var t = new Date(now);
+  var d = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+};
+/* Pure: dashboard numbers from eaten rows. */
+BF.eatenStats = function (rows, now) {
+  var w0 = BF.weekStart(now);
+  var ws = w0.getTime();
+  var nextMon = new Date(w0.getFullYear(), w0.getMonth(), w0.getDate() + 7).getTime();
+  var week = 0;
+  var since = now - 30 * 86400000;
+  var by = {};
+  rows.forEach(function (e) {
+    var ms = BF.tsMs(e.eaten_at);
+    if (ms == null) return;
+    if (ms >= ws && ms < nextMon) week++;
+    if (ms >= since && ms <= now) {
+      var k = e.dish_id != null ? 'd:' + e.dish_id : 'n:' + String(e.item_name || '').trim().toLowerCase();
+      if (!by[k]) by[k] = { name: BF.eatenName(e), n: 0 };
+      by[k].n++;
+    }
+  });
+  var top = Object.keys(by).map(function (k) { return by[k]; })
+    .sort(function (a, b) { return (b.n - a.n) || BF.az(a.name, b.name); }).slice(0, 3);
+  return { week: week, top: top };
+};
+BF.whileList = function (now) {
+  var out = [];
+  BF.lib.dishes.forEach(function (d) {
+    var c = BF.catOf(d);
+    if ((c !== 'meal' && c !== 'side') || BF.stockTotal(d) === '') return;
+    var last = BF.lastHad(d);
+    var ms = BF.tsMs(last);
+    if (ms != null && now - ms < 14 * 86400000) return;
+    out.push({ d: d, last: ms });
+  });
+  return out.sort(function (a, b) { return BF.byName(a.d, b.d); }).slice(0, 8);
+};
+BF.renderEatenReal = function () {
+  var body = BF.$('bf-tab-eaten-body');
+  if (!body) return;
+  body.classList.add('bf-stack');
+  body.replaceChildren();
+  if (!BF.lib.loaded) {
+    if (BF.lib.error) body.appendChild(BF.emptyCard('Couldn\'t load what was eaten. Reopen the app to retry.'));
+    return;
+  }
+  var now = Date.now();
+  var rows = BF.lib.eaten || [];
+  var st = BF.eatenStats(rows, now);
+  var v = BF.eatenView;
+  var t = new Date(now);
+  if (v.y == null) { v.y = t.getFullYear(); v.m = t.getMonth(); }
+  if (!v.sel) v.sel = BF.ymd(t);
+
+  // dashboard
+  var dash = BF.el('div', 'bf-eat-dash');
+  var c1 = BF.el('section', 'bf-card bf-eat-card');
+  c1.appendChild(BF.el('h2', 'bf-eat-title', 'This week'));
+  c1.appendChild(BF.el('p', 'bf-eat-big', String(st.week)));
+  c1.appendChild(BF.el('p', 'bf-hint', st.week === 1 ? 'meal eaten' : 'meals eaten'));
+  dash.appendChild(c1);
+  var c2 = BF.el('section', 'bf-card bf-eat-card');
+  c2.appendChild(BF.el('h2', 'bf-eat-title', 'Most eaten'));
+  if (st.top.length) {
+    var ol = BF.el('ol', 'bf-eat-top');
+    st.top.forEach(function (x) {
+      var li = BF.el('li');
+      li.appendChild(BF.el('span', 'bf-eat-name', x.name));
+      li.appendChild(BF.el('span', 'bf-eat-n', '\u00d7' + x.n));
+      ol.appendChild(li);
+    });
+    c2.appendChild(ol);
+  } else c2.appendChild(BF.el('p', 'bf-hint', 'Nothing in the last 30 days.'));
+  c2.appendChild(BF.el('p', 'bf-hint bf-eat-sub', 'Last 30 days'));
+  dash.appendChild(c2);
+  body.appendChild(dash);
+
+  var wl = BF.whileList(now);
+  var c3 = BF.el('section', 'bf-card bf-eat-card');
+  c3.appendChild(BF.el('h2', 'bf-eat-title', 'Haven\'t had in a while'));
+  if (wl.length) {
+    var ul = BF.el('ul', 'bf-eat-while');
+    wl.forEach(function (x) {
+      var li = BF.el('li');
+      li.appendChild(BF.el('span', 'bf-eat-name', String(x.d.name == null ? '' : x.d.name)));
+      var dt = x.last != null ? new Date(x.last) : null;
+      li.appendChild(BF.el('span', 'bf-eat-last', dt ? 'last: ' + dt.getDate() + ' ' + BF.MONTHS[dt.getMonth()] : 'not yet'));
+      ul.appendChild(li);
+    });
+    c3.appendChild(ul);
+  } else c3.appendChild(BF.el('p', 'bf-hint', 'Everything in the house was eaten lately.'));
+  body.appendChild(c3);
+
+  // calendar
+  var perDay = {};
+  rows.forEach(function (e) {
+    var ms = BF.tsMs(e.eaten_at);
+    if (ms == null) return;
+    var k = BF.dayKey(ms);
+    (perDay[k] = perDay[k] || []).push(e);
+  });
+  var cal = BF.el('section', 'bf-card bf-cal');
+  var head = BF.el('div', 'bf-cal-head');
+  head.appendChild(BF.button('\u2039', 'bf-square bf-btn-ghost', function () { v.m--; if (v.m < 0) { v.m = 11; v.y--; } BF.renderEaten(); }, 'Previous month'));
+  head.appendChild(BF.el('h2', 'bf-cal-title', BF.MONTHS_LONG[v.m] + ' ' + v.y));
+  head.appendChild(BF.button('\u203a', 'bf-square bf-btn-ghost', function () { v.m++; if (v.m > 11) { v.m = 0; v.y++; } BF.renderEaten(); }, 'Next month'));
+  cal.appendChild(head);
+  var grid = BF.el('div', 'bf-cal-grid');
+  grid.setAttribute('role', 'grid');
+  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(function (w) { grid.appendChild(BF.el('span', 'bf-cal-wd', w)); });
+  var first = new Date(v.y, v.m, 1);
+  var lead = (first.getDay() + 6) % 7;
+  var days = new Date(v.y, v.m + 1, 0).getDate();
+  var today = BF.ymd(t);
+  for (var i = 0; i < lead; i++) grid.appendChild(BF.el('span', 'bf-cal-pad'));
+  for (var dnum = 1; dnum <= days; dnum++) {
+    (function (dn) {
+      var key = BF.ymd(new Date(v.y, v.m, dn));
+      var list = perDay[key] || [];
+      var b = BF.el('button', 'bf-cal-day' + (key === today ? ' is-today' : '') + (key === v.sel ? ' is-sel' : ''));
+      b.type = 'button';
+      b.setAttribute('aria-label', dn + ' ' + BF.MONTHS_LONG[v.m] + ': ' + BF.plural(list.length, 'meal', 'meals'));
+      if (key === v.sel) b.setAttribute('aria-pressed', 'true');
+      b.appendChild(BF.el('span', 'bf-cal-num', String(dn)));
+      var dots = BF.el('span', 'bf-cal-dots');
+      for (var k = 0; k < Math.min(3, list.length); k++) dots.appendChild(BF.el('span', 'bf-cal-dot'));
+      if (list.length > 3) dots.appendChild(BF.el('span', 'bf-cal-more', '+' + (list.length - 3)));
+      b.appendChild(dots);
+      b.addEventListener('click', function () { v.sel = key; BF.renderEaten(); });
+      grid.appendChild(b);
+    })(dnum);
+  }
+  cal.appendChild(grid);
+  body.appendChild(cal);
+
+  // the chosen day
+  var sp = v.sel.split('-');
+  var selDate = new Date(+sp[0], +sp[1] - 1, +sp[2]);
+  var dayCard = BF.el('section', 'bf-card bf-cal-dayview');
+  dayCard.appendChild(BF.el('h2', 'bf-eat-title', BF.shortDate(selDate)));
+  var items = (perDay[v.sel] || []).slice().sort(function (a, b) { return BF.tsMs(a.eaten_at) - BF.tsMs(b.eaten_at); });
+  if (!items.length) dayCard.appendChild(BF.el('p', 'bf-hint', 'Nothing recorded.'));
+  else {
+    var rowsBox = BF.el('div', 'bf-rows');
+    items.forEach(function (e) {
+      var r = BF.el('div', 'bf-row');
+      var main = BF.el('div', 'bf-row-main');
+      var nm = BF.eatenName(e);
+      main.appendChild(BF.el('div', 'bf-hist-name', nm));
+      var dt = new Date(BF.tsMs(e.eaten_at));
+      main.appendChild(BF.el('div', 'bf-meta', BF.pad2(dt.getHours()) + ':' + BF.pad2(dt.getMinutes())));
+      r.appendChild(main);
+      var acts = BF.el('div', 'bf-row-acts');
+      acts.appendChild(BF.button('Change time', 'bf-btn-sm bf-btn-ghost', function () {
+        BF.openChangeTime({ id: null, label: nm, data: { eaten_id: e.id, eaten_at: e.eaten_at }, done_at: e.eaten_at });
+      }, 'Change when ' + nm + ' was eaten'));
+      r.appendChild(acts);
+      rowsBox.appendChild(r);
+    });
+    dayCard.appendChild(rowsBox);
+  }
+  body.appendChild(dayCard);
+};
+BF.sTab('renderEaten', 'eaten', function () { return BF.renderEatenReal(); });
+var _bfLoadLibraryS = BF.loadLibrary;
+BF.loadLibrary = async function () {
+  var out = await _bfLoadLibraryS.apply(this, arguments);
+  BF.renderEaten();
+  return out;
 };
 
 BF.init();
