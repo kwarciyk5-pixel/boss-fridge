@@ -889,6 +889,8 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
   text-decoration-skip-ink: none;
 }
 
+/* ---------- batch R: performance only (no style changes) ---------- */
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -1025,7 +1027,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v28';
+var BF_VERSION = 'bf-v29';
 
 var BF = {
   sb: null,
@@ -13429,6 +13431,233 @@ BF.openDishSheet = function () {
   var sync = function () { wrap.hidden = row.hidden; };
   sync();
   try { new MutationObserver(sync).observe(row, { attributes: true, attributeFilter: ['hidden'] }); } catch (e) { /* ignore */ }
+};
+
+/* ===================== batch R: performance only (same screens, same data written) ===================== */
+
+/* ---------- 1. A-Z with one shared collator (same order as localeCompare('en', base, numeric)) ---------- */
+(function () {
+  var coll = null;
+  try { coll = new Intl.Collator('en', { sensitivity: 'base', numeric: true }); } catch (e) { coll = null; }
+  if (!coll) return;
+  BF.az = function (a, b) {
+    return coll.compare(String(a == null ? '' : a).trim(), String(b == null ? '' : b).trim());
+  };
+})();
+
+/* ---------- 2. lookups remembered for one render pass only (data cannot change inside a pass) ---------- */
+BF._memo = null;
+BF._memoDepth = 0;
+/* Wrap a top-level renderer / matcher so everything it calls shares one memo, dropped when it returns. */
+BF.memoScope = function (name) {
+  var f = BF[name];
+  if (typeof f !== 'function') return;
+  BF[name] = function () {
+    var outer = BF._memoDepth === 0;
+    if (outer) BF._memo = {};
+    BF._memoDepth++;
+    try { return f.apply(this, arguments); } finally {
+      BF._memoDepth--;
+      if (outer) BF._memo = null;
+    }
+  };
+};
+/* A memoized version of BF[name]; key(args) -> string or null (null = don't cache). */
+BF.memoFn = function (name, key) {
+  var f = BF[name];
+  if (typeof f !== 'function') return;
+  BF[name] = function () {
+    var m = BF._memo;
+    if (!m) return f.apply(this, arguments);
+    var k = key.apply(null, arguments);
+    if (k == null) return f.apply(this, arguments);
+    var tab = m[name] || (m[name] = Object.create(null));
+    if (k in tab) return tab[k];
+    return (tab[k] = f.apply(this, arguments));
+  };
+};
+/* findDish: one id map per pass (first match wins, as the linear search did). */
+(function () {
+  var f = BF.findDish;
+  BF.findDish = function (id) {
+    var m = BF._memo;
+    if (!m || id == null) return f.apply(this, arguments);
+    if (!m.dishById || m.dishSrc !== BF.lib.dishes) {
+      m.dishSrc = BF.lib.dishes;
+      m.dishById = Object.create(null);
+      for (var i = 0; i < BF.lib.dishes.length; i++) {
+        var k = String(BF.lib.dishes[i].id);
+        if (!(k in m.dishById)) m.dishById[k] = BF.lib.dishes[i];
+      }
+    }
+    var hit = m.dishById[String(id)];
+    return hit || null;
+  };
+})();
+/* dishByName (no exception id): one name map per pass, same trim + lower-case rule as sameName. */
+(function () {
+  var f = BF.dishByName;
+  BF.dishByName = function (name, exceptId) {
+    var m = BF._memo;
+    if (!m || exceptId != null) return f.apply(this, arguments);
+    if (!m.dishByName || m.nameSrc !== BF.lib.dishes) {
+      m.nameSrc = BF.lib.dishes;
+      m.dishByName = Object.create(null);
+      for (var i = 0; i < BF.lib.dishes.length; i++) {
+        var k = String(BF.lib.dishes[i].name == null ? '' : BF.lib.dishes[i].name).trim().toLowerCase();
+        if (!(k in m.dishByName)) m.dishByName[k] = BF.lib.dishes[i];
+      }
+    }
+    return m.dishByName[String(name == null ? '' : name).trim().toLowerCase()] || null;
+  };
+})();
+BF.memoFn('inHouse', function (d) { return d && d.id != null ? String(d.id) : null; });
+BF.memoFn('stockTotal', function (d) { return d && d.id != null ? String(d.id) : null; });
+BF.memoFn('canMake', function (d) { return d && d.id != null ? String(d.id) : null; });
+BF.memoFn('lineInHouse', function (line, dish) { return typeof line === 'string' ? (dish && dish.id != null ? String(dish.id) : '') + '\u0001' + line : null; });
+/* normName is a pure string function: a small bounded cache. */
+(function () {
+  var f = BF.normName;
+  if (typeof f !== 'function') return;
+  var cache = new Map();
+  BF.normName = function (s) {
+    if (typeof s !== 'string') return f.apply(this, arguments);
+    var v = cache.get(s);
+    if (v !== undefined) return v;
+    v = f.call(this, s);
+    if (cache.size > 4000) cache.clear();
+    cache.set(s, v);
+    return v;
+  };
+})();
+['renderLibrary', 'renderFridge', 'renderShop', 'renderPlay', 'renderCook', 'renderBoss', 'cookMatches', 'mismatches', 'linkBanner'].forEach(BF.memoScope);
+
+/* ---------- 3. renders: a hidden tab is redrawn once, right after the reload (or when opened) ---------- */
+BF.R_TABS = { renderFridge: 'fridge', renderLibrary: 'library', renderShop: 'shop', renderPlay: 'play' };
+BF._rLoad = 0;          // reloads in flight
+BF._rDirty = {};        // renderer -> true: asked for while its tab was hidden
+BF._rReal = {};
+BF._rTimer = 0;
+Object.keys(BF.R_TABS).forEach(function (name) {
+  var f = BF[name];
+  BF._rReal[name] = f;
+  BF[name] = function () {
+    if (BF.screen === 'app' && BF.tab !== BF.R_TABS[name]) {
+      BF._rDirty[name] = true;
+      BF.rSchedule();
+      return;
+    }
+    delete BF._rDirty[name];
+    return f.apply(this, arguments);
+  };
+});
+BF.rRun = function (name) {
+  delete BF._rDirty[name];
+  try { BF._rReal[name](); } catch (e) { console.warn('render failed', name, e); }
+};
+/* Hidden tabs: one renderer per timer tick, once no reload is in flight. */
+BF.rSchedule = function () {
+  if (BF._rTimer) return;
+  BF._rTimer = setTimeout(function step() {
+    BF._rTimer = 0;
+    if (BF._rLoad > 0) return;              // the reload's end schedules again
+    var names = Object.keys(BF._rDirty);
+    if (!names.length) return;
+    BF.rRun(names[0]);
+    if (Object.keys(BF._rDirty).length) BF._rTimer = setTimeout(step, 0);
+  }, 30);
+};
+/* Opening a tab draws it first if it is still waiting. */
+var _bfShowTabR = BF.showTab;
+BF.showTab = function (name) {
+  var out = _bfShowTabR.apply(this, arguments);
+  Object.keys(BF._rDirty).forEach(function (n) { if (BF.R_TABS[n] === BF.tab) BF.rRun(n); });
+  return out;
+};
+var _bfLoadDataR = BF.loadData;
+BF.loadData = function () {
+  BF._rLoad++;
+  var done = function () {
+    BF._rLoad--;
+    if (BF._rLoad === 0 && Object.keys(BF._rDirty).length) BF.rSchedule();
+  };
+  var p;
+  try { p = _bfLoadDataR.apply(this, arguments); } catch (e) { done(); throw e; }
+  return Promise.resolve(p).then(function (v) { done(); return v; }, function (e) { done(); throw e; });
+};
+
+/* ---------- 4. after a write: skip re-reading board / swipe / notes / reminders when their live updates are on ---------- */
+BF._rSinks = [];
+BF.rHookFrom = function () {
+  if (!BF.sb || BF.sb.__bfR || typeof BF.sb.from !== 'function') return;
+  var from = BF.sb.from;
+  BF.sb.from = function (t) {
+    for (var i = 0; i < BF._rSinks.length; i++) BF._rSinks[i][t] = true;
+    return from.apply(this, arguments);
+  };
+  BF.sb.__bfR = true;
+};
+BF._rWrite = null;      // tables touched by the write whose reload is starting (set only while loadData starts)
+BF.rLive = function (ch) { return !!ch && ch.state === 'joined'; };
+var _bfLoadBoardR = BF.loadBoard;
+BF.loadBoard = function () {
+  var w = BF._rWrite;
+  if (w && BF.board.loaded && BF.rLive(BF._boardCh) && !w.bf_board && !w.bf_board_votes) return Promise.resolve();
+  return _bfLoadBoardR.apply(this, arguments);
+};
+var _bfLoadSwipeR = BF.loadSwipe;
+BF.loadSwipe = function () {
+  var w = BF._rWrite;
+  if (w && BF.swipe.loaded && BF.rLive(BF._swipeCh) && !w.bf_swipe_rounds && !w.bf_swipes) return Promise.resolve();
+  return _bfLoadSwipeR.apply(this, arguments);
+};
+var _bfLoadNotesR = BF.loadNotes;
+BF.loadNotes = function () {
+  var w = BF._rWrite;
+  if (w && BF.notes.loaded && BF.rLive(BF._notesCh) && !w.bf_notes) return Promise.resolve();
+  return _bfLoadNotesR.apply(this, arguments);
+};
+var _bfLoadRemindersR = BF.loadReminders;
+BF.loadReminders = function () {
+  var w = BF._rWrite;
+  if (w && BF.rem.loaded && BF.rLive(BF._remCh) && !w.bf_reminders) return Promise.resolve();
+  return _bfLoadRemindersR.apply(this, arguments);
+};
+/* Same as batch B's run; the reload after a successful write knows which tables were written. */
+BF.run = async function (fn) {
+  BF.rHookFrom();
+  var touched = {};
+  BF._rSinks.push(touched);
+  var out;
+  try {
+    out = await fn();
+  } catch (e) {
+    BF._rSinks.splice(BF._rSinks.indexOf(touched), 1);
+    console.warn('write failed', e);
+    BF.toast(BF.SAVE_FAIL);
+    BF.loadData();
+    return false;
+  }
+  BF._rSinks.splice(BF._rSinks.indexOf(touched), 1);
+  var p;
+  BF._rWrite = touched;
+  try { p = BF.loadData(); } finally { BF._rWrite = null; }
+  await p;
+  return out === undefined ? true : out;
+};
+
+/* ---------- 5. coming back to the app: overlapping boots share one run ---------- */
+BF._rBoot = null;
+var _bfBootR = BF.boot;
+BF.boot = function () {
+  var b = BF._rBoot;
+  if (b && BF.session && Date.now() - b.at < 2000) return b.p;
+  var p = Promise.resolve(_bfBootR.apply(this, arguments));
+  var me = { p: p, at: Date.now() };
+  BF._rBoot = me;
+  var clear = function () { if (BF._rBoot === me) BF._rBoot = null; };
+  p.then(clear, clear);
+  return p;
 };
 
 BF.init();
