@@ -943,6 +943,44 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 .bf-cal-more { font-size: 9.5px; font-weight: 900; color: var(--bf-muted); line-height: 1; }
 .bf-cal-dayview .bf-rows { margin-top: 6px; }
 
+/* ---------- batch T: Notifications bell + sheet, second toast action ---------- */
+.bf-bell-btn { position: relative; }
+.bf-bell-btn[hidden] { display: none; }
+.bf-bell-dot {
+  position: absolute; top: 9px; right: 9px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--bf-hot); box-shadow: 0 0 0 2px var(--bf-bg);
+}
+.bf-bell-dot[hidden] { display: none; }
+.bf-notice-list { display: flex; flex-direction: column; gap: 14px; }
+.bf-notice-day { display: flex; flex-direction: column; gap: 6px; }
+.bf-notice-dayhead { font-family: var(--bf-font-head); font-size: 15px; font-weight: 700; color: var(--bf-muted); margin: 0; }
+.bf-notice {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%;
+  min-height: 48px; padding: 8px 10px;
+  border: 2px solid var(--bf-line); border-radius: 14px;
+  background: var(--bf-card); color: var(--bf-ink);
+  font: inherit; font-size: 15px; text-align: left; cursor: pointer;
+}
+.bf-notice:active { background: var(--bf-ice); }
+.bf-notice:focus-visible { outline: 3px solid var(--bf-blue); outline-offset: 2px; }
+.bf-notice-icon { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--bf-ice); }
+.bf-notice-icon svg { width: 18px; height: 18px; display: block; }
+.bf-notice-low .bf-notice-icon { background: var(--bf-goldsoft); }
+.bf-notice-reminder .bf-notice-icon { background: var(--bf-peach); }
+.bf-notice-text { flex: 1 1 auto; min-width: 0; padding-top: 4px; font-weight: 700; overflow-wrap: anywhere; }
+.bf-notice-time { flex: 0 0 auto; padding-top: 5px; font-size: 13px; color: var(--bf-muted); font-variant-numeric: tabular-nums; }
+.bf-notice-empty { margin: 4px 0; }
+.bf-toast.has-two { flex-wrap: wrap; justify-content: flex-end; border-radius: 22px; row-gap: 6px; }
+.bf-toast.has-two .bf-toast-text { flex: 1 1 100%; }
+.bf-toast .bf-toast-act2 { background: transparent; color: #FBF5EA; }
+/* Narrow phones: the bell takes less room so "Boss Fridge" / "Food library" still fit. */
+@media (max-width: 399px) {
+  .bf-bell-btn { width: 32px; min-width: 32px; margin-right: -4px; }
+  .bf-bell-dot { right: 3px; }
+  .bf-header-left { gap: 4px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -1079,7 +1117,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v30';
+var BF_VERSION = 'bf-v31';
 
 var BF = {
   sb: null,
@@ -14345,6 +14383,419 @@ var _bfLoadLibraryS = BF.loadLibrary;
 BF.loadLibrary = async function () {
   var out = await _bfLoadLibraryS.apply(this, arguments);
   BF.renderEaten();
+  return out;
+};
+
+/* ===================== batch T: Notifications bell, "+ Running low" after the last one, leftovers always dated ===================== */
+
+/* ---------- 1. notices (server-written log in bf_notices; read-only for phones) ---------- */
+BF.NOTICE_DAYS = 14;
+BF.NOTICE_MAX = 200;
+BF.NOTICE_GROUP_MS = 10 * 60 * 1000;
+BF.NOTICE_SEEN_KEY = 'bf-notices-seen';
+BF.notices = { rows: [], loaded: false, missing: false };
+BF._noticeSeq = 0;
+
+BF.noticeSeen = function () {
+  var v = null;
+  try { v = window.localStorage.getItem(BF.NOTICE_SEEN_KEY); } catch (e) { v = null; }
+  var t = v ? Date.parse(v) : NaN;
+  return isNaN(t) ? 0 : t;
+};
+BF.setNoticeSeen = function () {
+  try { window.localStorage.setItem(BF.NOTICE_SEEN_KEY, new Date().toISOString()); } catch (e) { /* private mode */ }
+};
+BF.noticeMine = function (n) { return !!n.actor && BF.lc2(n.actor) === BF.myKey(); };
+/* The dot: something newer than this phone's last look, not done by me. */
+BF.noticeUnread = function () {
+  var seen = BF.noticeSeen();
+  return BF.notices.rows.some(function (n) {
+    var t = Date.parse(n.created_at);
+    return !isNaN(t) && t > seen && !BF.noticeMine(n);
+  });
+};
+BF.noticeMissing = function (r) {
+  var e = r && r.error;
+  if (!e) return false;
+  return r.status === 404 || e.code === '42P01' || e.code === 'PGRST205' || /bf_notices/.test(String(e.message || '')) && /exist|find/i.test(String(e.message || ''));
+};
+
+/* The header bell: left of the avatars, hidden until the table answers. */
+BF.bellButton = function () {
+  var b = BF.$('bf-bell-btn');
+  if (b) return b;
+  var right = BF.$('bf-avatars') && BF.$('bf-avatars').parentNode;
+  if (!right) return null;
+  b = BF.el('button', 'bf-icon-btn bf-bell-btn');
+  b.type = 'button';
+  b.id = 'bf-bell-btn';
+  b.hidden = true;
+  b.setAttribute('aria-label', 'Notifications');
+  b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>';
+  var dot = BF.el('span', 'bf-bell-dot');
+  dot.hidden = true;
+  b.appendChild(dot);
+  b.addEventListener('click', function () { BF.openNotices(); });
+  right.insertBefore(b, BF.$('bf-avatars'));
+  return b;
+};
+BF.renderBell = function () {
+  var b = BF.bellButton();
+  if (!b) return;
+  b.hidden = !BF.notices.loaded || BF.notices.missing;
+  var unread = !b.hidden && BF.noticeUnread();
+  b.querySelector('.bf-bell-dot').hidden = !unread;
+  b.setAttribute('aria-label', unread ? 'Notifications, new' : 'Notifications');
+};
+
+BF.loadNotices = async function () {
+  if (!BF.sb || BF.notices.missing) return;
+  var seq = ++BF._noticeSeq;
+  var since = new Date(Date.now() - BF.NOTICE_DAYS * 86400000).toISOString();
+  var r;
+  try {
+    r = await BF.sb.from('bf_notices').select('*').gte('created_at', since)
+      .order('created_at', { ascending: false }).limit(BF.NOTICE_MAX);
+  } catch (e) { console.warn('notices load failed', e); return; }
+  if (seq !== BF._noticeSeq) return;
+  if (r.error) {
+    if (BF.noticeMissing(r)) { BF.notices.missing = true; BF.notices.loaded = false; BF.renderBell(); return; }
+    console.warn('notices load failed', r.error);
+    return;
+  }
+  BF.notices.rows = r.data || [];
+  BF.notices.loaded = true;
+  if (BF._noticesOpen && document.contains(BF._noticesOpen)) { BF.fillNotices(BF._noticesOpen); BF.setNoticeSeen(); }
+  BF.renderBell();
+  BF.noticesListen();
+};
+
+/* Realtime: a new notice (or one removed by an Undo) shows on every phone. */
+BF.noticesListen = function () {
+  if (!BF.sb || typeof BF.sb.channel !== 'function' || BF._noticesCh || BF.notices.missing || !BF.notices.loaded) return;
+  var kick = function () {
+    clearTimeout(BF._noticesTimer);
+    BF._noticesTimer = setTimeout(function () { if (BF.screen === 'app') BF.loadNotices(); }, 250);
+  };
+  var first = true;
+  var ch = BF.sb.channel('bf-notices')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'bf_notices' }, kick);
+  BF._noticesCh = ch;
+  ch.subscribe(function (status) {
+    if (ch !== BF._noticesCh) return;
+    if (status === 'SUBSCRIBED') { if (!first) kick(); first = false; return; }
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      console.warn('notices realtime', status);
+      BF._noticesCh = null;
+      try { BF.sb.removeChannel(ch); } catch (e) { /* ignore */ }
+    }
+  });
+};
+
+/* Boot and coming back to the app: one query. */
+var _bfBootT = BF.boot;
+BF._tBoot = null;
+BF.boot = function () {
+  var inner = _bfBootT.apply(this, arguments);
+  var last = BF._tBoot;
+  if (last && inner && last.inner === inner) return last.out;     // batch R handed back the boot already running
+  var out = Promise.resolve(inner).then(function (v) {
+    if (BF.screen === 'app') { BF.bellButton(); BF.loadNotices(); }
+    return v;
+  });
+  BF._tBoot = { inner: inner, out: out };
+  return out;
+};
+/* After this phone's own grocery write: the live channel brings the notice; without it, re-read once. */
+var _bfLoadDataT = BF.loadData;
+BF.loadData = function () {
+  var w = BF._rWrite;
+  var out = _bfLoadDataT.apply(this, arguments);
+  if (w && w.bf_groceries && BF.notices.loaded && !BF.rLive(BF._noticesCh)) {
+    Promise.resolve(out).then(function () { BF.loadNotices(); }, function () { /* the write path reports */ });
+  }
+  return out;
+};
+
+/* ---------- the Notifications sheet ---------- */
+BF.noticeWho = function (email) {
+  if (!email) return 'Someone';
+  if (BF.lc2(email) === BF.myKey()) return 'You';
+  var m = BF.memberByEmail(email);
+  if (!m) return String(email).split('@')[0];
+  var name = m.display_name || m.email;
+  return m.emoji ? m.emoji + ' ' + name : name;
+};
+BF.noticeDayKey = function (t) { return BF.ymd(new Date(t)); };
+BF.noticeDayLabel = function (key) {
+  if (key === BF.today()) return 'Today';
+  if (key === BF.addDays(-1)) return 'Yesterday';
+  var p = key.split('-');
+  return BF.shortDate(new Date(+p[0], +p[1] - 1, +p[2], 12));
+};
+BF.noticeTime = function (t) { var d = new Date(t); return BF.pad2(d.getHours()) + ':' + BF.pad2(d.getMinutes()); };
+/* Newest first; consecutive Shop / Running low adds by the same person within 10 min become one row. */
+BF.noticeGroups = function () {
+  var cut = Date.now() - BF.NOTICE_DAYS * 86400000;
+  var out = [];
+  BF.notices.rows.forEach(function (n) {
+    var t = Date.parse(n.created_at);
+    if (isNaN(t) || t < cut) return;
+    var day = BF.noticeDayKey(t);
+    var last = out[out.length - 1];
+    if (last && (n.kind === 'shop' || n.kind === 'low') && last.kind === n.kind && last.day === day &&
+        BF.lc2(last.actor) === BF.lc2(n.actor) && last.t - t <= BF.NOTICE_GROUP_MS) {
+      last.bodies.push(String(n.body == null ? '' : n.body));
+      return;
+    }
+    out.push({ kind: n.kind, actor: n.actor, t: t, day: day, bodies: [String(n.body == null ? '' : n.body)] });
+  });
+  return out;
+};
+BF.noticeText = function (g) {
+  var list = g.bodies.join(', ');
+  if (g.kind === 'reminder') return 'Not done yet: ' + list;
+  var who = BF.noticeWho(g.actor);
+  if (g.kind === 'low') return who + ': running low on ' + list;
+  if (g.bodies.length > 1) return who + ' added ' + g.bodies.length + ' things to Shop: ' + list;
+  return who + ' added ' + list + ' to Shop';
+};
+BF.NOTICE_ICONS = {
+  shop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2.5 3.5h3l2.4 11.2a1.5 1.5 0 0 0 1.5 1.2h8.3a1.5 1.5 0 0 0 1.5-1.2L21 7.5H6.4"/></svg>',
+  low: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="7.5" width="16" height="9" rx="2"/><path d="M21.5 11v2"/><path d="M5.5 10.5v3"/></svg>',
+  reminder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2"/><path d="M5 3 2.5 5.5M19 3l2.5 2.5"/></svg>'
+};
+BF.noticeRow = function (g) {
+  var row = BF.el('button', 'bf-notice bf-notice-' + g.kind);
+  row.type = 'button';
+  var ic = BF.el('span', 'bf-notice-icon');
+  ic.innerHTML = BF.NOTICE_ICONS[g.kind] || BF.NOTICE_ICONS.shop;
+  row.appendChild(ic);
+  var text = BF.noticeText(g);
+  row.appendChild(BF.el('span', 'bf-notice-text', text));
+  row.appendChild(BF.el('span', 'bf-notice-time', BF.noticeTime(g.t)));
+  row.setAttribute('aria-label', text + ', ' + BF.noticeTime(g.t) + '. Opens ' + (g.kind === 'reminder' ? 'Boss Fridge' : 'Shopping'));
+  row.addEventListener('click', function () {
+    BF.closeSheet();
+    BF.showTab(g.kind === 'reminder' ? 'boss' : 'shop');
+  });
+  return row;
+};
+BF.fillNotices = function (list) {
+  list.replaceChildren();
+  var groups = BF.noticeGroups();
+  if (!groups.length) { list.appendChild(BF.el('p', 'bf-hint bf-notice-empty', 'Nothing yet.')); return; }
+  var day = null, sec = null;
+  groups.forEach(function (g) {
+    if (g.day !== day) {
+      day = g.day;
+      sec = BF.el('section', 'bf-notice-day');
+      sec.appendChild(BF.el('h3', 'bf-notice-dayhead', BF.noticeDayLabel(day)));
+      list.appendChild(sec);
+    }
+    sec.appendChild(BF.noticeRow(g));
+  });
+};
+BF.openNotices = function () {
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Notifications'));
+    var list = BF.el('div', 'bf-notice-list');
+    box.appendChild(list);
+    BF._noticesOpen = list;
+    BF.fillNotices(list);
+  });
+  BF.setNoticeSeen();
+  BF.renderBell();
+};
+
+/* ---------- 2. "+ Running low" on the toast after the last one is gone, or Left set to Nearly out ---------- */
+BF.TOAST_TWO_MS = 6500;
+/* Names whose last stock these items were (nothing else of the same Library entry left), not already on Shop. */
+BF.lastOfNames = function (items) {
+  var gone = {};
+  items.forEach(function (it) { if (it) gone[String(it.id)] = true; });
+  var out = [];
+  items.forEach(function (it) {
+    if (!it) return;
+    var d = it.dish_id != null ? BF.findDish(it.dish_id) : null;
+    var name = String(d && d.name != null ? d.name : (it.name == null ? '' : it.name)).trim();
+    if (!name) return;
+    var other = BF.data.items.some(function (x) {
+      if (gone[String(x.id)]) return false;
+      return (it.dish_id != null && x.dish_id === it.dish_id) || BF.sameName(x.name, name);
+    });
+    if (other || BF.onList(name)) return;
+    if (!out.some(function (n) { return BF.sameName(n, name); })) out.push(name);
+  });
+  return out;
+};
+/* A second button on the toast that is showing now. */
+BF.toastAction = function (label, fn) {
+  var t = BF.$('bf-toast-layer').querySelector('.bf-toast');
+  if (!t) return null;
+  var b = BF.el('button', 'bf-btn bf-btn-ghost bf-toast-act2', label);
+  b.type = 'button';
+  b.addEventListener('click', function () { BF.hideToast(); fn(); });
+  t.appendChild(b);
+  t.classList.add('has-two');
+  clearTimeout(BF._toastTimer);
+  BF._toastTimer = setTimeout(BF.hideToast, BF.TOAST_TWO_MS);
+  return b;
+};
+BF.offerRunningLow = function (names) {
+  names = (names || []).filter(function (n) { return !BF.onList(n); });
+  if (!names.length) return;
+  BF.toastAction('+ Running low', async function () {
+    for (var i = 0; i < names.length; i++) await BF.runningLow(names[i], { low: true });
+  });
+};
+/* From the toast the add is always marked low (the last one may already be gone from the house). */
+BF._tForceLow = null;
+var _bfRunningLowT = BF.runningLow;
+BF.runningLow = function (name, opts) {
+  if (!opts || !opts.low) return _bfRunningLowT.apply(this, arguments);
+  BF._tForceLow = String(name == null ? '' : name).trim();
+  try { return _bfRunningLowT.call(this, name); } finally { BF._tForceLow = null; }
+};
+
+BF._tPend = null;
+var _bfToastT = BF.toast;
+BF.toast = function (text, undoFn) {
+  var p = BF._tPend;
+  var out = _bfToastT.apply(this, arguments);
+  if (!p || typeof text !== 'string') return out;
+  if (text === BF.SAVE_FAIL || Date.now() - p.at > 15000) { BF._tPend = null; return out; }
+  if (p.kind === 'eat' && typeof undoFn === 'function') {
+    BF._tPend = null;
+    BF.offerRunningLow(p.names);
+  } else if (p.kind === 'level' && (text.indexOf('Saved ') === 0 || text.indexOf('Added ') === 0)) {
+    BF._tPend = null;
+    BF.offerRunningLow([text.slice(6)]);
+  }
+  return out;
+};
+BF.tWithPend = function (names, fn, self, args) {
+  if (!names.length) return fn.apply(self, args);
+  var p = { kind: 'eat', names: names, at: Date.now() };
+  BF._tPend = p;
+  var clear = function () { if (BF._tPend === p) BF._tPend = null; };
+  var out;
+  try { out = fn.apply(self, args); } catch (e) { clear(); throw e; }
+  return Promise.resolve(out).then(function (v) { clear(); return v; }, function (e) { clear(); throw e; });
+};
+var _bfAteSaveT = BF.ateSave;
+BF.ateSave = function (it, o) {
+  var names = o && o.gone ? BF.lastOfNames([BF.findItem(it && it.id) || it]) : [];
+  return BF.tWithPend(names, _bfAteSaveT, this, arguments);
+};
+var _bfAteItT = BF.ateIt;
+BF.ateIt = function (id) {
+  var it = BF.findItem(id);
+  var names = it && !BF.unitOf(it) && !(it.count != null && it.count > 1) ? BF.lastOfNames([it]) : [];
+  return BF.tWithPend(names, _bfAteItT, this, arguments);
+};
+var _bfCookItSaveT = BF.cookItSave;
+BF.cookItSave = function (o) {
+  var gone = ((o && o.uses) || []).filter(function (u) { return u && u.gone; }).map(function (u) { return BF.findItem(u.it && u.it.id) || u.it; });
+  return BF.tWithPend(gone.length ? BF.lastOfNames(gone) : [], _bfCookItSaveT, this, arguments);
+};
+if (typeof BF.cookSave === 'function') {
+  var _bfCookSaveT = BF.cookSave;
+  BF.cookSave = function (it, o) {
+    var names = o && o.gone ? BF.lastOfNames([BF.findItem(it && it.id) || it]) : [];
+    return BF.tWithPend(names, _bfCookSaveT, this, arguments);
+  };
+}
+/* Item sheet: Save with Left newly set to Nearly out. */
+BF.isNearlyOut = function (v) { return v != null && Math.abs(Number(v) - 0.1) < 0.001; };
+var _bfOpenItemSheetT = BF.openItemSheet;
+BF.openItemSheet = function (id) {
+  var out = _bfOpenItemSheetT.apply(this, arguments);
+  var body = BF.$('bf-sheet-body');
+  if (!body) return out;
+  var old = id != null ? BF.findItem(id) : null;
+  var was = !!old && BF.isNearlyOut(old.level);
+  var save = Array.prototype.filter.call(body.querySelectorAll('button.bf-btn-wide'), function (b) { return b.textContent === 'Save'; })[0];
+  if (!save) return out;
+  save.addEventListener('click', function () {
+    var on = Array.prototype.some.call(body.querySelectorAll('.bf-left .bf-pill.is-on'), function (b) { return BF.isNearlyOut(b._val); });
+    var left = body.querySelector('.bf-left');
+    BF._tPend = on && !was && left && !left.hidden ? { kind: 'level', at: Date.now() } : null;
+  }, true);
+  return out;
+};
+
+/* ---------- 3. a leftover always has a date: no expiry -> today + 3 (new rows and edits; restores / imports keep theirs) ---------- */
+BF._tRestore = 0;
+var _bfPutBackT = BF.putBack;
+BF.putBack = function () {
+  BF._tRestore++;
+  var done = function () { BF._tRestore--; };
+  var out;
+  try { out = _bfPutBackT.apply(this, arguments); } catch (e) { done(); throw e; }
+  return Promise.resolve(out).then(function (v) { done(); return v; }, function (e) { done(); throw e; });
+};
+BF.tHook = function () {
+  if (!BF.sb || BF.sb.__bfT || typeof BF.sb.from !== 'function') return;
+  var from = BF.sb.from;
+  BF.sb.from = function (t) {
+    var q = from.apply(this, arguments);
+    if (!q) return q;
+    if (t === 'bf_items' && typeof q.insert === 'function' && typeof q.update === 'function') {
+      var ins = q.insert;
+      q.insert = function (values) {
+        if (BF._tRestore > 0) return ins.apply(this, arguments);
+        var many = Array.isArray(values);
+        var rows = (many ? values : [values]).map(function (r) {
+          if (r && r.id == null && r.leftover === true && !r.expiry) return Object.assign({}, r, { expiry: BF.addDays(3) });
+          return r;
+        });
+        var args = Array.prototype.slice.call(arguments);
+        args[0] = many ? rows : rows[0];
+        return ins.apply(this, args);
+      };
+      var upd = q.update;
+      q.update = function (values) {
+        if (BF._tRestore > 0 || !values || values.leftover !== true || values.expiry) return upd.apply(this, arguments);
+        var vals = Object.assign({}, values);
+        var args = Array.prototype.slice.call(arguments);
+        args[0] = vals;
+        if ('expiry' in vals) { vals.expiry = BF.addDays(3); return upd.apply(this, args); }
+        var b = upd.apply(this, args);
+        if (b && typeof b.eq === 'function') {
+          var eq = b.eq;
+          b.eq = function (col, v) {
+            if (col === 'id' && !('expiry' in vals)) {
+              var it = BF.findItem(v);
+              if (it && !it.expiry) {
+                vals.expiry = BF.addDays(3);
+                if (this.body && typeof this.body === 'object' && this.body !== vals) this.body.expiry = vals.expiry;
+              }
+            }
+            return eq.apply(this, arguments);
+          };
+        }
+        return b;
+      };
+    }
+    if (t === 'bf_groceries' && typeof q.insert === 'function') {
+      var gins = q.insert;
+      q.insert = function (values) {
+        var force = BF._tForceLow;
+        if (!force || !values || Array.isArray(values) || !BF.sameName(values.name, force)) return gins.apply(this, arguments);
+        var args = Array.prototype.slice.call(arguments);
+        args[0] = Object.assign({}, values, { low: true });
+        return gins.apply(this, args);
+      };
+    }
+    return q;
+  };
+  BF.sb.__bfT = true;
+};
+var _bfInitT = BF.init;
+BF.init = function () {
+  var out = _bfInitT.apply(this, arguments);
+  BF.tHook();
   return out;
 };
 
