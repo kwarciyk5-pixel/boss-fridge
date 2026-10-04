@@ -1267,7 +1267,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v34';
+var BF_VERSION = 'bf-v35';
 
 var BF = {
   sb: null,
@@ -17077,6 +17077,88 @@ BF.renderSwipe = function () {
   if (b) acts.insertBefore(b, acts.firstChild);
   return out;
 };
+
+/* ===================== batch X: Ingredients / Household say "Used up" in the Library entry sheet; Running low can be undone (Not low) ===================== */
+
+/* Undo a Running low: the Shop row goes (with Undo). Only rows marked low (to_buy, low = true). */
+BF.xNotLow = async function (name) {
+  name = String(name == null ? '' : name).trim();
+  if (!name) return;
+  var g = BF.onList(name);
+  if (!g || g.low !== true) { BF.toast(name + ' is not marked low'); return; }
+  var keep = {};
+  BF.COLUMNS.bf_groceries.forEach(function (c) { if (g[c] !== undefined) keep[c] = g[c]; });
+  var ok = await BF.run(async function () { BF.q(await BF.sb.from('bf_groceries').delete().eq('id', g.id)); });
+  if (ok) BF.toast(name + ': not low \u00b7 off Shop', function () {
+    BF.run(async function () { BF.q(await BF.sb.from('bf_groceries').insert(keep)); });
+  });
+};
+
+/* After a sheet is drawn: Used up wording for Ingredients / Household, and Running low -> Not low when it is already marked. */
+BF.xFixSheet = function (use, name) {
+  var body = BF.$('bf-sheet-body');
+  if (!body) return;
+  if (use) {
+    Array.prototype.forEach.call(body.querySelectorAll('p.bf-hint'), function (p) {
+      var t = p.textContent;
+      if (t === 'Not had yet' || t.indexOf('Last had ') === 0) p.hidden = true;
+    });
+    Array.prototype.forEach.call(body.querySelectorAll('button'), function (b) {
+      var t = b.textContent;
+      if (t === 'We ate this') {
+        b.hidden = true;
+        var row = b.parentNode;
+        if (row && row.classList.contains('bf-sheet-acts') && !Array.prototype.some.call(row.children, function (c) { return !c.hidden; })) row.hidden = true;
+      } else if (t === 'Ate it') {
+        b.textContent = 'Used up';
+        var al = b.getAttribute('aria-label');
+        if (al && al.indexOf('Ate it: ') === 0) b.setAttribute('aria-label', 'Used up: ' + al.slice(8));
+      } else if (t === 'Ate it / Used up') {
+        b.textContent = 'Used up / Use some';
+      }
+    });
+  }
+  name = String(name == null ? '' : name).trim();
+  var g = name ? BF.onList(name) : null;
+  if (!g || g.low !== true) return;
+  Array.prototype.forEach.call(body.querySelectorAll('button'), function (b) {
+    if (b.textContent !== 'Running low') return;
+    var nb = BF.button('Not low', b.className, function () { BF.closeSheet(); BF.xNotLow(name); }, 'Not low: ' + name);
+    b.parentNode.replaceChild(nb, b);
+  });
+};
+BF.xDishInfo = function (d) {
+  return { use: !!d && BF.W_USE_CATS.indexOf(BF.catOf(d)) >= 0, name: d ? d.name : '' };
+};
+BF.xItemInfo = function (it) {
+  if (!it) return { use: false, name: '' };
+  var d = it.dish_id != null ? BF.findDish(it.dish_id) : null;
+  return { use: BF.wUseMode(it), name: d ? d.name : it.name };
+};
+['openDishSheet', 'openDishActions'].forEach(function (fn) {
+  var prev = BF[fn];
+  if (typeof prev !== 'function') return;
+  BF[fn] = function (id) {
+    var out = prev.apply(this, arguments);
+    if (id != null) {
+      var x = BF.xDishInfo(BF.findDish(id));
+      BF.xFixSheet(x.use, x.name);
+    }
+    return out;
+  };
+});
+['openItemSheet', 'openItemActions', 'openMinion'].forEach(function (fn) {
+  var prev = BF[fn];
+  if (typeof prev !== 'function') return;
+  BF[fn] = function (id) {
+    var out = prev.apply(this, arguments);
+    if (id != null) {
+      var x = BF.xItemInfo(BF.findItem(id));
+      BF.xFixSheet(x.use, x.name);
+    }
+    return out;
+  };
+});
 
 BF.init();
 </script>
