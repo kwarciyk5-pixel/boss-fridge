@@ -1084,6 +1084,33 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
   .bf-ileft .bf-pill { min-width: 30px; padding: 0 6px; }
   .bf-isq { width: 30px; min-width: 30px; }
 }
+/* ---------- batch V: Add from Library on Shop, Shop rows on Library / Fridge sheets, compact Shop rows ---------- */
+.bf-v-search { display: flex; flex-direction: column; gap: 6px; }
+.bf-v-results[hidden] { display: none; }
+.bf-v-results { padding-top: 2px; padding-bottom: 2px; }
+.bf-v-hit { min-height: 42px; padding: 3px 0; flex-wrap: nowrap; }
+.bf-v-hit-main { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 auto; }
+.bf-v-hit-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.bf-v-hit-name:disabled { opacity: 0.55; cursor: default; }
+.bf-v-hit-type { flex: 0 0 auto; font-weight: 700; font-size: 11.5px; color: var(--bf-muted); white-space: nowrap; }
+.bf-v-hit .bf-row-acts { flex: 0 0 auto; flex-wrap: nowrap; gap: 6px; }
+.bf-v-note { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; }
+.bf-v-note .bf-hint { margin: 0; font-size: 12.5px; }
+
+/* Shop rows: one height for To buy and To order; smaller buttons */
+.bf-shop-row { min-height: 44px; padding: 2px 0; }
+.bf-shop-btn.bf-btn, .bf-shop-row .bf-row-acts .bf-btn {
+  min-height: 30px; height: 30px; padding: 0 11px; font-size: 12.5px; border-radius: 999px; box-shadow: none;
+}
+.bf-shop-row .bf-row-acts { gap: 6px; }
+
+/* "Shop" row on Library and Fridge sheets */
+.bf-v-shoprow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bf-v-shoplabel { flex: 0 0 auto; min-width: 44px; font-weight: 900; font-size: 13px; }
+.bf-v-shopstate { flex: 1 1 auto; font-weight: 800; font-size: 13px; color: var(--bf-muted); }
+.bf-v-shoprow .bf-btn { min-height: 34px; }
+.bf-stock-box .bf-v-shoprow { padding-top: 8px; border-top: 1.5px dashed var(--bf-line); }
+.bf-v-shoprow-item { margin-top: 8px; padding: 8px 0 0; border-top: 1.5px dashed var(--bf-line); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -1220,7 +1247,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v32';
+var BF_VERSION = 'bf-v33';
 
 var BF = {
   sb: null,
@@ -15969,6 +15996,353 @@ BF.openSettings = function () {
 BF.openAccount = BF.openSettings;
 BF.$('bf-settings-btn').removeEventListener('click', _bfOpenSettingsU);
 BF.$('bf-settings-btn').addEventListener('click', BF.openSettings);
+/* ===================== batch V: Shop adds come from the Library; To buy / To order from Library and Fridge; Buy now counts as a new add ===================== */
+
+/* ---------- 1. one way onto Shop: a Library name, To buy or To order ---------- */
+BF.shopAdd = async function (name, status, opts) {
+  name = String(name == null ? '' : name).trim();
+  status = status === 'to_order' ? 'to_order' : 'to_buy';
+  if (!name) return false;
+  var onB = BF.onList(name);
+  var onO = BF.onOrder(name);
+  if (status === 'to_buy' && onB) { BF.toast(name + ' is already on To buy'); return false; }
+  if (status === 'to_order' && onO) { BF.toast(name + ' is already on To order'); return false; }
+  if (status === 'to_buy' && onO) return BF.buyNow(onO.id);
+  if (status === 'to_order' && onB) return BF.toOrder(onB.id);
+  var row = { name: name, status: status };
+  if (opts && opts.low) row.low = true;
+  var gid = await BF.run(async function () {
+    var g = BF.q(await BF.sb.from('bf_groceries').insert(row).select('id').single());
+    return g ? g.id : null;
+  });
+  if (gid === false) return false;
+  BF.toast(name + ' \u2192 ' + (status === 'to_order' ? 'To order' : 'To buy'), function () {
+    if (gid != null) BF.run(async function () { BF.q(await BF.sb.from('bf_groceries').delete().eq('id', gid)); });
+  });
+  return true;
+};
+/* Buy now is a fresh add to To buy (by you, now), so it notifies like one. Undo puts it back as it was. */
+BF.buyNow = async function (id) {
+  var g = BF.findGrocery(id);
+  if (!g) return false;
+  var was = { status: g.status || 'to_order', added_by: g.added_by == null ? null : g.added_by, added_at: g.added_at == null ? null : g.added_at };
+  var ok = await BF.run(async function () {
+    BF.q(await BF.sb.from('bf_groceries').update({ status: 'to_buy', added_by: BF.myEmail(), added_at: new Date().toISOString() }).eq('id', id));
+  });
+  if (ok) BF.toast(g.name + ' \u2192 To buy', function () {
+    BF.run(async function () { BF.q(await BF.sb.from('bf_groceries').update(was).eq('id', id)); });
+  });
+  return ok;
+};
+/* The Library name for a fridge item (its own name when it isn't linked). */
+BF.vNameOf = function (it) {
+  var d = it && it.dish_id != null ? BF.findDish(it.dish_id) : null;
+  return String(d && d.name != null ? d.name : (it && it.name != null ? it.name : '')).trim();
+};
+/* "To buy \u00b7 To order" buttons, or where it already is. */
+BF.vShopRow = function (name, cls) {
+  var row = BF.el('div', 'bf-v-shoprow' + (cls ? ' ' + cls : ''));
+  row.appendChild(BF.el('span', 'bf-v-shoplabel', 'Shop'));
+  var onB = BF.onList(name);
+  var onO = BF.onOrder(name);
+  if (onB || onO) {
+    var st = BF.el('span', 'bf-v-shopstate', onB ? 'On To buy' : 'On To order');
+    if (onB && onB.low === true) { st.appendChild(document.createTextNode(' ')); st.appendChild(BF.lowTag(name)); }
+    row.appendChild(st);
+    row.appendChild(BF.button(onB ? 'To order' : 'Buy now', 'bf-btn-sm bf-btn-ghost', function () {
+      BF.closeSheet();
+      if (onB) BF.toOrder(onB.id); else BF.buyNow(onO.id);
+    }, onB ? 'Move ' + name + ' to To order' : 'Move ' + name + ' to To buy'));
+  } else {
+    row.appendChild(BF.button('To buy', 'bf-btn-sm bf-btn-primary', function () { BF.closeSheet(); BF.shopAdd(name, 'to_buy'); }, 'Add ' + name + ' to To buy'));
+    row.appendChild(BF.button('To order', 'bf-btn-sm', function () { BF.closeSheet(); BF.shopAdd(name, 'to_order'); }, 'Add ' + name + ' to To order'));
+  }
+  return row;
+};
+
+/* ---------- 2. Shop: "Add from Library" search instead of free text ---------- */
+BF.SHOP_PICK_MAX = 8;
+var _bfBuildShopUIV = BF.buildShopUI;
+BF.buildShopUI = function () {
+  var ui = _bfBuildShopUIV.apply(this, arguments);
+  var body = BF.$('bf-tab-shop-body');
+  var old = BF.$('bf-shop-add');
+  var form = old && old.closest ? old.closest('form') : null;
+  var box = BF.el('section', 'bf-v-search');
+  var q = BF.input({ type: 'search', id: 'bf-shop-find', placeholder: 'Add from Library\u2026' });
+  q.setAttribute('aria-label', 'Add from the Library');
+  q.enterKeyHint = 'search';
+  box.appendChild(q);
+  var res = BF.el('div', 'bf-card bf-rows bf-v-results');
+  res.hidden = true;
+  box.appendChild(res);
+  if (form && form.parentNode === body) { form.hidden = true; body.insertBefore(box, form); }
+  else body.insertBefore(box, body.firstChild);
+  ui.find = q;
+  ui.results = res;
+  q.addEventListener('input', function () { BF.vDrawResults(); });
+  q.addEventListener('keydown', function (e) { if (e.key === 'Escape') { q.value = ''; BF.vDrawResults(); } });
+  return ui;
+};
+BF.vDrawResults = function () {
+  var ui = BF.shopUI;
+  if (!ui || !ui.find || !ui.results) return;
+  var res = ui.results;
+  var text = ui.find.value.trim();
+  res.replaceChildren();
+  res.hidden = !text;
+  if (!text) return;
+  var hits = BF.libSearch(text);
+  hits.slice(0, BF.SHOP_PICK_MAX).forEach(function (d) {
+    var name = String(d.name == null ? '' : d.name).trim();
+    var row = BF.el('div', 'bf-row bf-v-hit');
+    var main = BF.el('div', 'bf-row-main bf-v-hit-main');
+    var onB = BF.onList(name);
+    var onO = BF.onOrder(name);
+    var nb = BF.el('button', 'bf-textbtn bf-v-hit-name', name);
+    nb.type = 'button';
+    nb.disabled = !!(onB || onO);
+    nb.setAttribute('aria-label', onB || onO ? name : 'Add ' + name + ' to To buy');
+    nb.addEventListener('click', function () { BF.vPick(name, 'to_buy'); });
+    main.appendChild(nb);
+    main.appendChild(BF.el('span', 'bf-v-hit-type', onB ? 'On To buy' : onO ? 'On To order' : BF.catLabel(BF.catOf(d))));
+    row.appendChild(main);
+    var acts = BF.el('div', 'bf-row-acts');
+    if (!onB && !onO) {
+      acts.appendChild(BF.button('To buy', 'bf-btn-sm bf-btn-primary bf-shop-btn', function () { BF.vPick(name, 'to_buy'); }, 'Add ' + name + ' to To buy'));
+      acts.appendChild(BF.button('To order', 'bf-btn-sm bf-btn-ghost bf-shop-btn', function () { BF.vPick(name, 'to_order'); }, 'Add ' + name + ' to To order'));
+    } else if (onO) {
+      acts.appendChild(BF.button('Buy now', 'bf-btn-sm bf-btn-ghost bf-shop-btn', function () { BF.vPick(name, 'to_buy'); }, 'Move ' + name + ' to To buy'));
+    }
+    row.appendChild(acts);
+    res.appendChild(row);
+  });
+  var note = !hits.length ? 'Not in the Library \u2013 add it there first.' : (hits.length > BF.SHOP_PICK_MAX ? 'Keep typing to narrow ' + hits.length + ' entries.' : '');
+  if (note) {
+    var p = BF.el('div', 'bf-v-note');
+    p.appendChild(BF.el('span', 'bf-hint', note));
+    if (!hits.length) p.appendChild(BF.button('Open Library', 'bf-btn-sm bf-btn-ghost', function () { BF.showTab('library'); }));
+    res.appendChild(p);
+  }
+};
+BF.vPick = async function (name, status) {
+  var ui = BF.shopUI;
+  var ok = await BF.shopAdd(name, status);
+  if (ok && ui && ui.find) { ui.find.value = ''; BF.vDrawResults(); ui.find.focus(); }
+};
+
+/* ---------- 3. Shop list: names that aren't in the Library get a banner; results stay current ---------- */
+BF.vUnlinkedShop = function () {
+  return (BF.data.groceries || []).concat(BF.data.toOrder || []).filter(function (g) {
+    return g.status !== 'bought' && !BF.uDishFor(g.name);
+  });
+};
+BF.openFixShop = function () {
+  var rows = BF.vUnlinkedShop();
+  if (!rows.length) { BF.toast('Everything on Shop is in the Library'); return; }
+  var left = rows.length;
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Add to Library'));
+    var form = BF.el('div', 'bf-form');
+    form.appendChild(BF.el('p', 'bf-hint', 'Add each one to the Food Library with a type, or delete it from Shop.'));
+    var card = BF.el('div', 'bf-card bf-rows bf-new-names');
+    form.appendChild(card);
+    rows.forEach(function (g) {
+      var name = String(g.name == null ? '' : g.name).trim();
+      var r = BF.el('div', 'bf-row bf-new-row');
+      var main = BF.el('div', 'bf-row-main');
+      main.appendChild(BF.el('div', 'bf-hist-name', name));
+      var meta = BF.el('div', 'bf-meta', g.status === 'to_order' ? 'To order' : 'To buy');
+      main.appendChild(meta);
+      var pills = BF.el('div', 'bf-pills bf-type-pills');
+      var settle = function (text) {
+        pills.replaceChildren();
+        meta.textContent = text;
+        left--;
+        if (!left) { BF.closeSheet(); BF.toast('Everything on Shop is in the Library'); }
+      };
+      BF.TYPE_PILLS.forEach(function (tp) {
+        pills.appendChild(BF.button(tp[1], 'bf-pill', async function () {
+          Array.prototype.forEach.call(pills.querySelectorAll('button'), function (x) { x.disabled = true; });
+          var ok = await BF.run(async function () {
+            var did = await BF.ensureDish(name, tp[0]);
+            if (did == null) throw new Error('Library entry not saved');
+          });
+          if (ok === false) { Array.prototype.forEach.call(pills.querySelectorAll('button'), function (x) { x.disabled = false; }); return; }
+          settle('Added as ' + tp[1]);
+        }));
+      });
+      pills.appendChild(BF.button('Delete', 'bf-pill bf-btn-ghost', function () {
+        Array.prototype.forEach.call(pills.querySelectorAll('button'), function (x) { x.disabled = true; });
+        BF.deleteGrocery(g.id);
+        settle('Deleted from Shop');
+      }));
+      main.appendChild(pills);
+      r.appendChild(main);
+      card.appendChild(r);
+    });
+    form.appendChild(BF.button('Not now', 'bf-btn-ghost bf-btn-wide', function () { BF.closeSheet(); }));
+    box.appendChild(form);
+  });
+};
+BF.sAfter('renderShop', function () {
+  var ui = BF.shopUI;
+  if (!ui || !BF.data.loaded) return;
+  BF.vDrawResults();
+  if (!BF.lib.loaded) return;
+  var n = BF.vUnlinkedShop().length;
+  if (!n) return;
+  var c = BF.el('div', 'bf-card bf-link-card bf-unlinked-card');
+  c.appendChild(BF.el('p', 'bf-link-text', BF.plural(n, 'thing on Shop isn\'t', 'things on Shop aren\'t') + ' in the Library'));
+  c.appendChild(BF.button('Add to Library', 'bf-btn-primary bf-btn-sm', function () { BF.openFixShop(); }));
+  ui.list.insertBefore(c, ui.list.firstChild);
+});
+/* Library changes (a new entry, a rename) redraw Shop too. */
+var _bfLoadLibraryV = BF.loadLibrary;
+BF.loadLibrary = async function () {
+  var out = await _bfLoadLibraryV.apply(this, arguments);
+  if (BF.data.loaded) BF.renderShop();
+  return out;
+};
+/* Shop row buttons: one size for To buy and To order. */
+var _bfShopLineV = BF.shopLine;
+BF.shopLine = function () {
+  var row = _bfShopLineV.apply(this, arguments);
+  Array.prototype.forEach.call(row.querySelectorAll('.bf-row-acts button'), function (b) {
+    b.classList.remove('bf-btn-xs');
+    b.classList.add('bf-shop-btn');
+  });
+  return row;
+};
+
+/* ---------- 4. Paste a list: Library names go on To buy; other names get a type first (or Skip) ---------- */
+BF.openBulkGroceries = function () {
+  BF.bulkSheet({
+    title: 'Paste a list',
+    label: 'Things to buy, one per line',
+    hint: 'One per line. Library names go on To buy; you pick a type for new ones.',
+    placeholder: 'Milk\nEggs\nRice',
+    submit: async function (lines, pick, btn) {
+      var add = [];
+      var unknown = [];
+      var skipped = 0;
+      lines.forEach(function (n) {
+        var d = BF.uDishFor(n) || BF.uDishFor(BF.parseAmount(n).name);
+        var name = d ? String(d.name).trim() : n.trim();
+        var seen = add.concat(unknown).some(function (x) { return BF.sameName(x, name); });
+        if (seen || BF.onList(name) || BF.onOrder(name)) { skipped++; return; }
+        (d ? add : unknown).push(name);
+      });
+      var msg = 'Added ' + add.length + (skipped ? ' (' + skipped + ' already on Shop)' : '');
+      if (add.length) {
+        var ok = await BF.sheetSave(btn, async function () {
+          BF.q(await BF.sb.from('bf_groceries').insert(add.map(function (n) { return { name: n, status: 'to_buy' }; })));
+        });
+        if (ok === false) return;
+      } else BF.closeSheet();
+      if (unknown.length) BF.openNewShopNames(unknown, add.length);
+      else BF.toast(msg);
+    }
+  });
+};
+BF.openNewShopNames = function (names, added) {
+  var state = names.map(function () { return 'open'; });
+  var count = added || 0;
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Not in the Library yet'));
+    var form = BF.el('div', 'bf-form');
+    form.appendChild(BF.el('p', 'bf-hint', (count ? BF.plural(count, 'thing', 'things') + ' added. ' : '') + 'Pick a type to add each one to the Food Library and To buy, or skip it.'));
+    var card = BF.el('div', 'bf-card bf-rows bf-new-names');
+    form.appendChild(card);
+    names.forEach(function (name, i) {
+      var r = BF.el('div', 'bf-row bf-new-row');
+      var main = BF.el('div', 'bf-row-main');
+      main.appendChild(BF.el('div', 'bf-hist-name', name));
+      var meta = BF.el('div', 'bf-meta', 'Add as:');
+      main.appendChild(meta);
+      var pills = BF.el('div', 'bf-pills bf-type-pills');
+      BF.TYPE_PILLS.forEach(function (tp) {
+        pills.appendChild(BF.button(tp[1], 'bf-pill', async function () {
+          if (state[i] !== 'open') return;
+          state[i] = 'busy';
+          Array.prototype.forEach.call(pills.querySelectorAll('button'), function (x) { x.disabled = true; });
+          var ok = await BF.run(async function () {
+            var did = await BF.ensureDish(name, tp[0]);
+            if (did == null) throw new Error('Library entry not saved');
+            var d = BF.findDish(did);
+            BF.q(await BF.sb.from('bf_groceries').insert({ name: d ? String(d.name).trim() : name, status: 'to_buy' }));
+          });
+          if (ok === false) {
+            state[i] = 'open';
+            Array.prototype.forEach.call(pills.querySelectorAll('button'), function (x) { x.disabled = false; });
+            return;
+          }
+          state[i] = 'added';
+          count++;
+          pills.replaceChildren();
+          meta.textContent = 'Added as ' + tp[1];
+        }));
+      });
+      pills.appendChild(BF.button('Skip', 'bf-pill bf-btn-ghost', function () {
+        if (state[i] !== 'open') return;
+        state[i] = 'skipped';
+        pills.replaceChildren();
+        meta.textContent = 'Skipped';
+      }));
+      main.appendChild(pills);
+      r.appendChild(main);
+      card.appendChild(r);
+    });
+    form.appendChild(BF.button('Done', 'bf-btn-wide', function () {
+      BF.closeSheet();
+      if (count) BF.toast('Added ' + BF.plural(count, 'thing', 'things') + ' to To buy');
+    }));
+    box.appendChild(form);
+  });
+};
+
+/* ---------- 5. Library entry sheet: a Shop row (To buy \u00b7 To order, or where it is) ---------- */
+var _bfOpenDishActionsV = BF.openDishActions;
+BF.openDishActions = function (id) {
+  _bfOpenDishActionsV.apply(this, arguments);
+  var d = BF.findDish(id);
+  var stock = document.querySelector('#bf-sheet-body .bf-stock-box');
+  if (!d || !stock) return;
+  var acts = stock.querySelector('.bf-stock-acts');
+  if (acts) acts.classList.add('bf-v-stockrow');
+  stock.appendChild(BF.vShopRow(String(d.name == null ? '' : d.name).trim()));
+};
+
+/* ---------- 6. Fridge item: To buy \u00b7 To order (actions sheet and edit sheet) ---------- */
+var _bfOpenItemActionsV = BF.openItemActions;
+BF.openItemActions = function (id) {
+  var out = _bfOpenItemActionsV.apply(this, arguments);
+  var it = BF.findItem(id);
+  var list = document.querySelector('#bf-sheet-body .bf-act-list');
+  if (it && list) list.appendChild(BF.vShopRow(BF.vNameOf(it), 'bf-v-shoprow-item'));
+  return out;
+};
+var _bfOpenItemSheetV = BF.openItemSheet;
+BF.openItemSheet = function (id) {
+  var out = _bfOpenItemSheetV.apply(this, arguments);
+  var it = id != null ? BF.findItem(id) : null;
+  var acts = document.querySelector('#bf-sheet-body .bf-isheet > .bf-sheet-acts');
+  if (it && acts) acts.parentNode.insertBefore(BF.vShopRow(BF.vNameOf(it), 'bf-v-shoprow-item'), acts.nextSibling);
+  return out;
+};
+
+/* ---------- 7. bell text: "Low: Milk \u00b7 Run out: Oil" (from what's in the house now) ---------- */
+var _bfNoticeTextV = BF.noticeText;
+BF.noticeText = function (g) {
+  if (!g || g.kind !== 'low') return _bfNoticeTextV.apply(this, arguments);
+  var low = [];
+  var out = [];
+  g.bodies.forEach(function (b) { (BF.lowState(b) === 'out' ? out : low).push(b); });
+  var parts = [];
+  if (low.length) parts.push('Low: ' + low.join(', '));
+  if (out.length) parts.push('Run out: ' + out.join(', '));
+  return BF.noticeWho(g.actor) + ': ' + parts.join(' \u00b7 ');
+};
 BF.init();
 </script>
 </body>
