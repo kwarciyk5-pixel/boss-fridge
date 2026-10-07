@@ -1131,6 +1131,17 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 .bf-w-qty { display: flex; align-items: center; gap: 6px; }
 .bf-w-qty .bf-field { width: 96px; text-align: center; }
 .bf-w-stock { padding: 0 12px; }
+/* bf-v36: Cook it Dish dropdown (works on iOS, unlike <datalist>) */
+.bf-y-combo { margin-top: 6px; max-height: 264px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; border: 2.5px solid var(--bf-ink); border-radius: 14px; background: var(--bf-card); }
+.bf-y-combo[hidden] { display: none; }
+.bf-y-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 44px; margin: 0; padding: 8px 14px; border: 0; border-top: 1.5px dashed var(--bf-line); border-radius: 0; background: transparent; color: var(--bf-ink); font-family: var(--bf-font); text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.bf-y-opt:first-child { border-top: 0; }
+.bf-y-opt:active, .bf-y-opt:focus-visible { background: var(--bf-bg); }
+.bf-y-opt-name { font-weight: 800; font-size: 15px; overflow-wrap: anywhere; }
+.bf-y-opt-meta { font-weight: 700; font-size: 12px; color: var(--bf-muted); overflow-wrap: anywhere; }
+.bf-y-opt.is-uses .bf-y-opt-meta { color: var(--bf-blue); }
+.bf-y-new .bf-y-opt-name { color: var(--bf-blue); }
+.bf-y-empty { margin: 0; padding: 10px 14px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -1267,7 +1278,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v35';
+var BF_VERSION = 'bf-v36';
 
 var BF = {
   sb: null,
@@ -12914,7 +12925,7 @@ BF.cookItSave = async function (o, btn) {
   if (o.when) h.data.eaten_at = o.when;
   var dishName = o.dish;
   var ok = await BF.sheetSave(btn, async function () {
-    var ex = BF.dishByName(o.dish);
+    var ex = (o.dishId != null ? BF.findDish(o.dishId) : null) || BF.dishByName(o.dish);
     var did = ex ? ex.id : await BF.ensureDish(o.dish, 'meal', 'home');
     if (did == null) throw new Error('Library entry not saved');
     var d = ex || BF.findDish(did);
@@ -12978,11 +12989,15 @@ BF.openCookIt = function (opts) {
   BF.openSheet(function (box) {
     box.appendChild(BF.el('h2', 'bf-sheet-title', 'Cook it'));
     var form = BF.el('div', 'bf-form');
-    var dishes = BF.lib.dishes.filter(function (d) { var c = BF.catOf(d); return c === 'meal' || c === 'side'; }).slice().sort(BF.byName);
-    box.appendChild(BF.datalist('bf-cook-dishes', dishes.map(function (d) { return String(d.name == null ? '' : d.name); })));
     var dishIn = BF.input({ placeholder: 'e.g. Fried rice', value: dish0 ? String(dish0.name) : '' });
-    dishIn.setAttribute('list', 'bf-cook-dishes');
+    // bf-v36: our own dropdown (iOS Safari barely shows <datalist>). A picked row links by id.
+    var pickedId = dish0 ? String(dish0.id) : null;
+    var combo = BF.yDishCombo(dishIn, {
+      ticked: function () { return ticked(); },
+      onPick: function (d) { pickedId = d ? String(d.id) : null; err.hidden = true; draw(); }
+    });
     var dishWrap = BF.labelled('Dish', dishIn);
+    dishWrap.appendChild(combo.el);
     var err = BF.el('p', 'bf-err', 'Needs a dish name');
     err.hidden = true;
     err.setAttribute('role', 'alert');
@@ -13043,7 +13058,10 @@ BF.openCookIt = function (opts) {
     };
     var target = function () {
       var n = dishIn.value.trim();
-      return n ? BF.dishByName(n) : null;
+      if (!n) return null;
+      var p = pickedId != null ? BF.findDish(pickedId) : null;
+      if (p && BF.sameName(p.name, n)) return p;
+      return BF.yCookDishFor(n);
     };
     var draw = function () {
       ingBox.replaceChildren();
@@ -13066,7 +13084,8 @@ BF.openCookIt = function (opts) {
         matches.forEach(function (it) { if (!picks[String(it.id)]) picks[String(it.id)] = { on: false, user: false }; });
         var anyOn = matches.some(function (it) { return picks[String(it.id)].on; });
         var anyUser = matches.some(function (it) { return picks[String(it.id)].user; });
-        if (matches.length && !anyOn && !anyUser) picks[String(matches[0].id)].on = true;
+        // Only the dish the sheet was opened for ticks its first match; a dish picked in the field offers its rows unticked.
+        if (matches.length && !anyOn && !anyUser && dish0 && String(d.id) === String(dish0.id)) picks[String(matches[0].id)].on = true;
         matches.forEach(function (it) {
           if (shown[String(it.id)]) return;
           shown[String(it.id)] = true;
@@ -13128,8 +13147,9 @@ BF.openCookIt = function (opts) {
       return null;
     };
     var plan = function (n, dishLeft) {
+      var d = target();
       return {
-        dish: n, dishLeft: dishLeft, when: when.value(), as: st.as,
+        dish: n, dishId: d ? d.id : null, dishLeft: dishLeft, when: when.value(), as: st.as,
         places: st.places.map(function (p) { return { location: p.location, count: p.count }; }),
         uses: ticked().map(function (it) {
           var p = pickOf(it);
@@ -17159,6 +17179,133 @@ BF.xItemInfo = function (it) {
     return out;
   };
 });
+
+/* ===================== batch Y (bf-v36): Cook it Dish dropdown that works on iPhone ===================== */
+
+/* Meals and Sides: the dishes Cook it can make. */
+BF.yCookPool = function () {
+  return BF.lib.dishes.filter(function (d) { var c = BF.catOf(d); return c === 'meal' || c === 'side'; });
+};
+BF.yNorm = function (s) {
+  var t = BF.normName(s);
+  return typeof t.normalize === 'function' ? t.normalize('NFC') : t;
+};
+/* "Radish Soup (Burmese)" -> whole name, "radish soup", and the text in each bracket. */
+BF.yNameParts = function (name) {
+  var s = String(name == null ? '' : name);
+  var parts = [BF.yNorm(s), BF.yNorm(s.replace(/\([^)]*\)/g, ' '))];
+  (s.match(/\(([^)]*)\)/g) || []).forEach(function (m) { parts.push(BF.yNorm(m.slice(1, -1))); });
+  return parts.filter(Boolean);
+};
+/* A typed name -> the existing dish it means: exact (any case, trimmed) Meal/Side, else the only Meal/Side
+   whose English or bracket text matches exactly, else the old rule (any Library entry by exact name). */
+BF.yCookDishFor = function (name) {
+  var t = BF.yNorm(name);
+  if (!t) return null;
+  var pool = BF.yCookPool();
+  var exact = pool.filter(function (d) { return BF.yNorm(d.name) === t; });
+  if (exact.length) return exact[0];
+  var hits = pool.filter(function (d) { return BF.yNameParts(d.name).indexOf(t) >= 0; });
+  if (hits.length === 1) return hits[0];
+  return BF.dishByName(name);
+};
+/* The ticked items a dish uses as ingredients (by ingredient_ids, else by name). */
+BF.yUsesItems = function (d, its) {
+  if (!its || !its.length) return [];
+  var slots = BF.wSlots(d);
+  if (!slots.length) return [];
+  return its.filter(function (it) {
+    if (it.dish_id != null && String(it.dish_id) === String(d.id)) return false;
+    return slots.some(function (sl) {
+      if (sl.ids && it.dish_id != null) return sl.ids.indexOf(String(it.dish_id)) >= 0;
+      return BF.itemMatches(it, BF.altsOf(BF.wSlotLine(sl)), d);
+    });
+  });
+};
+/* Rows for the dropdown: dishes using the ticked items first, then favourites, then A-Z. */
+BF.yCookList = function (q, its) {
+  var t = BF.yNorm(q);
+  return BF.yCookPool()
+    .filter(function (d) { return !t || BF.yNorm(d.name).indexOf(t) >= 0; })
+    .map(function (d) { return { d: d, uses: BF.yUsesItems(d, its) }; })
+    .sort(function (a, b) {
+      return (b.uses.length ? 1 : 0) - (a.uses.length ? 1 : 0) || (b.d.favourite ? 1 : 0) - (a.d.favourite ? 1 : 0) || BF.byName(a.d, b.d);
+    });
+};
+/* The dropdown under the Dish field. o.ticked() -> items ticked under Used; o.onPick(dish or null for a new one). */
+BF.yDishCombo = function (input, o) {
+  var box = BF.el('div', 'bf-y-combo');
+  box.hidden = true;
+  box.id = 'bf-y-list-' + Math.random().toString(36).slice(2, 9);
+  box.setAttribute('role', 'listbox');
+  box.setAttribute('aria-label', 'Meals and sides in the Library');
+  input.removeAttribute('list');
+  input.autocomplete = 'off';
+  input.setAttribute('autocorrect', 'off');
+  input.setAttribute('spellcheck', 'false');
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-autocomplete', 'list');
+  input.setAttribute('aria-controls', box.id);
+  input.setAttribute('aria-expanded', 'false');
+  var all = false;   // just focused: show the whole list, not only what is already in the field
+  var held = false;  // a finger is on the list (scrolling or tapping): don't close on blur
+  var row = function (cls, name, meta, onTap) {
+    var b = BF.el('button', 'bf-y-opt ' + cls);
+    b.type = 'button';
+    b.setAttribute('role', 'option');
+    b.appendChild(BF.el('span', 'bf-y-opt-name', name));
+    if (meta) b.appendChild(BF.el('span', 'bf-y-opt-meta', meta));
+    b.addEventListener('click', onTap);
+    return b;
+  };
+  var render = function () {
+    box.replaceChildren();
+    var t = input.value.trim();
+    BF.yCookList(all ? '' : t, o.ticked() || []).forEach(function (r) {
+      var meta = [BF.catLabel(BF.catOf(r.d))];
+      if (r.uses.length) meta.unshift('Uses ' + r.uses.map(function (it) { return String(it.name == null ? '' : it.name).trim(); }).join(', '));
+      box.appendChild(row(r.uses.length ? 'is-uses' : '', (r.d.favourite ? '★ ' : '') + String(r.d.name).trim(), meta.join(' · '), function () { pick(r.d); }));
+    });
+    if (t && !BF.yCookDishFor(t)) box.appendChild(row('bf-y-new', '+ New dish: ' + t, 'Joins the Library as a homemade Meal', function () { pick(null); }));
+    if (!box.childNodes.length) box.appendChild(BF.el('p', 'bf-hint bf-y-empty', 'No meals or sides yet. Type a new one.'));
+  };
+  var open = function () {
+    render();
+    box.hidden = false;
+    box.scrollTop = 0;
+    input.setAttribute('aria-expanded', 'true');
+  };
+  var close = function () {
+    box.hidden = true;
+    input.setAttribute('aria-expanded', 'false');
+  };
+  var pick = function (d) {
+    input.value = d ? String(d.name).trim() : input.value.trim();
+    close();
+    held = false;
+    input.blur();
+    o.onPick(d);
+  };
+  input.addEventListener('focus', function () { all = true; held = false; open(); });
+  input.addEventListener('click', function () { if (box.hidden) { all = true; open(); } });
+  input.addEventListener('input', function () { all = false; open(); });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !box.hidden) { e.stopPropagation(); close(); }
+    else if (e.key === 'Enter') close();
+  });
+  input.addEventListener('blur', function () { setTimeout(function () { if (!held) close(); }, 150); });
+  box.addEventListener('pointerdown', function () { held = true; });
+  box.addEventListener('touchstart', function () { held = true; }, { passive: true });
+  /* A tap anywhere else closes the list (iOS doesn't always blur the field). Gone with the sheet. */
+  var outside = function (e) {
+    if (!document.contains(input)) { document.removeEventListener('pointerdown', outside, true); return; }
+    if (box.hidden || box.contains(e.target) || e.target === input) return;
+    held = false;
+    close();
+  };
+  document.addEventListener('pointerdown', outside, true);
+  return { el: box, close: close };
+};
 
 BF.init();
 </script>
