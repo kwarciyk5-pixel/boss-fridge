@@ -1152,6 +1152,9 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 .bf-y-opt-meta { font-weight: 700; font-size: 12px; color: var(--bf-muted); overflow-wrap: anywhere; }
 .bf-y-opt.is-uses .bf-y-opt-meta { color: var(--bf-blue); }
 .bf-y-new .bf-y-opt-name { color: var(--bf-blue); }
+/* bf-v37: part of an item in Cook it */
+.bf-z-use { display: flex; flex-direction: column; gap: 8px; }
+.bf-z-use .bf-counter-val { min-width: 3ch; text-align: center; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -1288,7 +1291,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v36';
+var BF_VERSION = 'bf-v37';
 
 var BF = {
   sb: null,
@@ -9414,11 +9417,11 @@ BF.amountText = function (count, unit) {
     if (n >= 1000) return BF.trimNum(n / 1000) + (unit === 'g' ? ' kg' : ' l');
     return BF.trimNum(n) + ' ' + unit;
   }
-  return '\u00d7' + n;
+  return '\u00d7' + (BF.zFrac ? BF.zFrac(n) : n);
 };
 BF.itemAmount = function (it) { return it ? BF.amountText(it.count, BF.unitOf(it)) : ''; };
 /* For sentences: "3" for a plain count, "250 g" with a unit. */
-BF.amountWords = function (n, unit) { return unit ? BF.amountText(n, unit) : String(n); };
+BF.amountWords = function (n, unit) { return unit ? BF.amountText(n, unit) : (BF.zFrac ? BF.zFrac(n) : String(n)); };
 
 /* Import: an unknown unit becomes a plain count. */
 var _bfRowProblemN = BF.rowProblem;
@@ -12925,14 +12928,21 @@ BF.ateSave = async function (it, o, btn) {
   BF.toast(msg, function () { BF.putBack(h); });
 };
 
-/* ---------- Cook it save (replaces batch O's): Some left as Leftover -> goes off in 3 days ---------- */
+/* ---------- Cook it save (replaces batch O's). bf-v37: three outcomes, every one lands somewhere ----------
+   o.outcome: 'eaten' (All eaten: an Eaten row), 'left' (Some left: an Eaten row + a Leftover in the fridge),
+   'later' (Save for later: a ready item only). o.uses[i].patch = { count, level } for part of an item. */
 BF.cookItSave = async function (o, btn) {
+  var outcome = o.outcome || (o.dishLeft ? 'left' : 'eaten');
+  var eat = outcome !== 'later';
+  var keepIt = outcome !== 'eaten';
+  var action = eat ? 'ate' : 'cooked';
   var restores = o.uses.map(function (u) { return Object.assign({}, u.it); });
-  var h = { id: null, action: 'ate', label: o.dish, data: {
-    restores: restores, cooked_into: o.dish, dish_id: null, eaten_id: null, created_item_ids: [],
+  var h = { id: null, action: action, label: o.dish, data: {
+    restores: restores, cooked_into: o.dish, dish_id: null, outcome: outcome,
+    eaten_id: null, eaten_ids: [], created_item_ids: [],
     used: o.uses.map(function (u) { return { id: u.it.id, used: u.used == null ? null : u.used, gone: !!u.gone }; })
   } };
-  if (o.when) h.data.eaten_at = o.when;
+  if (o.when && eat) h.data.eaten_at = o.when;
   var dishName = o.dish;
   var ok = await BF.sheetSave(btn, async function () {
     var ex = (o.dishId != null ? BF.findDish(o.dishId) : null) || BF.dishByName(o.dish);
@@ -12946,21 +12956,30 @@ BF.cookItSave = async function (o, btn) {
     for (var i = 0; i < o.uses.length; i++) {
       var u = o.uses[i];
       if (u.gone) BF.q(await BF.sb.from('bf_items').delete().eq('id', u.it.id));
+      else if (u.patch) BF.q(await BF.sb.from('bf_items').update(u.patch).eq('id', u.it.id));
       else if (u.rem != null) BF.q(await BF.sb.from('bf_items').update({ count: u.rem }).eq('id', u.it.id));
     }
-    if (o.dishLeft) {
-      var ready = o.as !== 'leftover';
-      var made = BF.q(await BF.sb.from('bf_items').insert(o.places.map(function (p) {
-        return { name: dishName, dish_id: did, ready: ready, leftover: !ready, location: p.location, count: p.count == null ? null : p.count, unit: null, expiry: ready ? null : BF.addDays(3) };
+    if (keepIt) {
+      var k = d && Number(d.keep_days) >= 1 ? Number(d.keep_days) : 3;
+      var places = o.places && o.places.length ? o.places : [{ location: 'fridge', count: null }];
+      var made = BF.q(await BF.sb.from('bf_items').insert(places.map(function (p) {
+        return {
+          name: dishName, dish_id: did, ready: true, leftover: outcome === 'left', location: p.location,
+          count: p.count == null ? null : p.count, unit: null, expiry: p.location === 'freezer' ? null : BF.addDays(k)
+        };
       })).select('id'));
       h.data.created_item_ids = (made || []).map(function (x) { return x.id; });
-    } else {
+    }
+    if (eat) {
       var row = { dish_id: did, item_name: dishName };
+      var me = BF.myEmail();
+      if (me) row.eaten_by = String(me).toLowerCase();
       if (o.when) row.eaten_at = o.when;
       var e = BF.q(await BF.sb.from('bf_eaten').insert(row).select('id').single());
       h.data.eaten_id = e ? e.id : null;
+      h.data.eaten_ids = e ? [e.id] : [];
     }
-    h.id = await BF.logHistory('ate', dishName, h.data);
+    h.id = await BF.logHistory(action, dishName, h.data);
   });
   if (ok === false) return;
   var where = [];
@@ -12968,7 +12987,11 @@ BF.cookItSave = async function (o, btn) {
     var l = BF.locLabel(p.location).toLowerCase();
     if (where.indexOf(l) < 0) where.push(l);
   });
-  BF.toast(o.dishLeft ? dishName + ' \u2192 ' + where.join(' + ') : 'Cooked and ate ' + dishName, function () { BF.putBack(h); });
+  if (!where.length) where.push(BF.locLabel('fridge').toLowerCase());
+  var msg = outcome === 'eaten' ? 'Cooked and ate ' + dishName
+    : outcome === 'left' ? 'Ate ' + dishName + ' · rest → ' + where.join(' + ')
+    : dishName + ' saved for later → ' + where.join(' + ');
+  BF.toast(msg, function () { BF.putBack(h); });
 };
 
 /* ---------- Cook tab matches (replaces batch O's): a dish's own items don't count as its ingredients ---------- */
@@ -13037,10 +13060,15 @@ BF.openCookIt = function (opts) {
     var acts = BF.el('div', 'bf-ate-acts');
     var allBtn = BF.button('All eaten', 'bf-btn-primary bf-btn-wide bf-act-main');
     var someBtn = BF.button('Some left', 'bf-btn-wide');
+    // bf-v37: a pot cooked for later meals goes to the fridge without an Eaten row.
+    var laterBtn = BF.button('Save for later', 'bf-btn-wide');
     acts.appendChild(allBtn);
     acts.appendChild(someBtn);
+    acts.appendChild(laterBtn);
     form.appendChild(acts);
     var rest = BF.cookRestBox(st);
+    // Some left is always a Leftover, Save for later always Ready: the "as" choice goes.
+    if (rest.firstChild && rest.firstChild.tagName === 'FIELDSET') rest.removeChild(rest.firstChild);
     rest.hidden = true;
     form.appendChild(rest);
     var keep = BF.button('Put it away', 'bf-btn-gold bf-btn-wide');
@@ -13050,7 +13078,7 @@ BF.openCookIt = function (opts) {
     var pickOf = function (it) {
       var p = picks[String(it.id)];
       if (!p.picker) {
-        p.picker = BF.amountPicker(it, { legend: 'How much did you use', all: true, some: true });
+        p.picker = BF.unitOf(it) ? BF.amountPicker(it, { legend: 'How much did you use', all: true, some: true }) : BF.zUsePicker(it, { legend: 'How much did you use' });
         p.picker.onChange = sync;
       }
       return p.picker;
@@ -13066,6 +13094,8 @@ BF.openCookIt = function (opts) {
       var txt = [String(it.name == null ? '' : it.name), BF.locLabel(it.location)];
       var amt = BF.itemAmount(it);
       if (amt) txt.push(amt);
+      var lv = BF.levelText(it.level);
+      if (lv) txt.push(lv);
       lab.appendChild(BF.el('span', 'bf-check-text', txt.join(' \u00b7 ')));
       wrap.appendChild(lab);
       var pk = pickOf(it);
@@ -13150,6 +13180,7 @@ BF.openCookIt = function (opts) {
       var bad = !target() || ticked().some(function (it) { var p = pickOf(it); return p.mode !== 'none' && p.used() == null; });
       allBtn.disabled = bad;
       someBtn.disabled = bad;
+      laterBtn.disabled = bad;
       keep.disabled = bad;
     };
     var dishName = function () {
@@ -13160,32 +13191,40 @@ BF.openCookIt = function (opts) {
       dishPick.btn.focus();
       return null;
     };
-    var plan = function (n, dishLeft) {
+    var plan = function (n, outcome) {
       var d = target();
       return {
-        dish: n, dishId: d ? d.id : null, dishLeft: dishLeft, when: when.value(), as: st.as,
+        dish: n, dishId: d ? d.id : null, dishLeft: outcome !== 'eaten', outcome: outcome, when: when.value(), as: outcome === 'left' ? 'leftover' : 'ready',
         places: st.places.map(function (p) { return { location: p.location, count: p.count }; }),
         uses: ticked().map(function (it) {
           var p = pickOf(it);
           var gone = p.isAll();
-          return { it: it, gone: gone, used: p.used(), rem: gone ? 0 : p.rem() };
+          return { it: it, gone: gone, used: p.used(), rem: gone ? 0 : p.rem(), patch: gone || typeof p.patch !== 'function' ? null : p.patch() };
         })
       };
     };
     allBtn.addEventListener('click', function () {
       var n = dishName();
-      if (n) BF.cookItSave(plan(n, false), allBtn);
+      if (n) BF.cookItSave(plan(n, 'eaten'), allBtn);
     });
-    someBtn.addEventListener('click', function () {
+    var putAway = null;
+    var choose = function (mode) {
       if (!dishName()) return;
-      someBtn.hidden = true;
+      putAway = mode;
+      [[someBtn, 'left'], [laterBtn, 'later']].forEach(function (x) {
+        x[0].classList.toggle('is-on', x[1] === mode);
+        x[0].setAttribute('aria-pressed', x[1] === mode ? 'true' : 'false');
+      });
       rest.hidden = false;
       keep.hidden = false;
+      keep.textContent = mode === 'later' ? 'Save it' : 'Put it away';
       keep.focus();
-    });
+    };
+    someBtn.addEventListener('click', function () { choose('left'); });
+    laterBtn.addEventListener('click', function () { choose('later'); });
     keep.addEventListener('click', function () {
       var n = dishName();
-      if (n) BF.cookItSave(plan(n, true), keep);
+      if (n && putAway) BF.cookItSave(plan(n, putAway), keep);
     });
     draw();
     box.appendChild(form);
@@ -17387,6 +17426,111 @@ BF.ySwUpdate = function () {
   });
 };
 BF.ySwUpdate();
+
+
+/* ===================== batch Z (bf-v37): Cook it uses part of an item; the cooked dish always lands somewhere ===================== */
+
+/* 1.5 -> "1½", 0.25 -> "¼", 3 -> "3" (never "0.5"). */
+BF.Z_GLYPH = { 1: '¼', 2: '½', 3: '¾' };
+BF.zFrac = function (n) {
+  var x = Number(n);
+  if (!isFinite(x)) return String(n);
+  var q = Math.round(x * 4);
+  if (Math.abs(q / 4 - x) > 0.001) return BF.trimNum(x);
+  var whole = Math.floor(q / 4);
+  var part = q % 4;
+  if (!part) return String(whole);
+  return (whole ? String(whole) : '') + BF.Z_GLYPH[part];
+};
+BF.zRound = function (n) { return Math.round(Number(n) * 10000) / 10000; };
+
+/* "How much did you use" in Cook it (no unit). Counts: chips ¼ ½ ¾ All + a ¼ stepper.
+   No count: what is left of it (level, or a whole one) in ¼ steps up to All. Starts at All.
+   Same shape as amountPicker, plus patch() -> what the item keeps: { count } / { count: null, level }. */
+BF.zUsePicker = function (it, opts) {
+  opts = opts || {};
+  var count = it.count == null ? null : Number(it.count);
+  var byCount = count != null && count > 0;
+  var lv = it.level == null ? null : Number(it.level);
+  var base = byCount ? count : (lv > 0 && lv < 1 ? lv : 1);
+  var p = { mode: 'frac', count: count, unit: null, onChange: null };
+  var st = { n: base };
+  var fs = BF.el('fieldset', 'bf-fieldset bf-amt bf-z-use');
+  fs.appendChild(BF.el('legend', 'bf-label', opts.legend || 'How much'));
+  p.el = fs;
+  var fire = function () { if (typeof p.onChange === 'function') p.onChange(); };
+  var row = BF.el('div', 'bf-pills');
+  fs.appendChild(row);
+  var chips = [];
+  var chip = function (v, text, aria) {
+    var b = BF.el('button', 'bf-pill', text);
+    b.type = 'button';
+    if (aria) b.setAttribute('aria-label', aria);
+    b.addEventListener('click', function () { set(v); });
+    row.appendChild(b);
+    chips.push([b, v]);
+  };
+  [0.25, 0.5, 0.75].forEach(function (v) { if (v < base - 0.001) chip(v, BF.zFrac(v), BF.zFrac(v) + ' used'); });
+  chip(base, 'All', 'All of it' + (byCount ? ' (' + BF.zFrac(base) + ')' : ''));
+  var val = null;
+  if (byCount && base > 0.25) {
+    var counter = BF.el('div', 'bf-counter');
+    val = BF.el('span', 'bf-counter-val');
+    val.setAttribute('aria-live', 'polite');
+    counter.appendChild(BF.button('-', 'bf-square', function () { set(Math.max(0.25, st.n - 0.25)); }, 'A quarter less'));
+    counter.appendChild(val);
+    counter.appendChild(BF.button('+', 'bf-square', function () { set(Math.min(base, st.n + 0.25)); }, 'A quarter more'));
+    fs.appendChild(counter);
+  }
+  var show = function () {
+    chips.forEach(function (c) {
+      var on = Math.abs(c[1] - st.n) < 0.001;
+      c[0].classList.toggle('is-on', on);
+      c[0].setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    if (val) val.textContent = BF.zFrac(st.n);
+  };
+  var set = function (v) { st.n = BF.zRound(v); show(); fire(); };
+  show();
+  p.used = function () { return st.n; };
+  p.isAll = function () { return st.n >= base - 0.001; };
+  p.rem = function () { return Math.max(0, BF.zRound(base - st.n)); };
+  p.patch = function () {
+    var r = p.rem();
+    if (r <= 0) return null;
+    if (!byCount) return { level: r >= 0.999 ? null : r };
+    return r >= 1 ? { count: r } : { count: null, level: r };
+  };
+  return p;
+};
+
+/* Fridge line: a part count reads "×1½". */
+var _bfItemLineZ = BF.itemLine;
+BF.itemLine = function (it) {
+  var line = _bfItemLineZ.apply(this, arguments);
+  if (it && it.count != null && !BF.unitOf(it) && Number(it.count) % 1 !== 0) {
+    var c = line.querySelector('.bf-line-count');
+    if (c) c.textContent = BF.itemAmount(it);
+  }
+  return line;
+};
+
+/* History: "Cooked" (Save for later) undoes like a cook that was eaten. */
+BF.HISTORY_TEXT.cooked = 'Cooked';
+var _bfPutBackZ = BF.putBack;
+BF.putBack = function (h) {
+  if (h && h.action === 'cooked' && h.data && Array.isArray(h.data.restores)) return _bfPutBackZ.call(this, Object.assign({}, h, { action: 'ate' }));
+  return _bfPutBackZ.apply(this, arguments);
+};
+var _bfHistoryRowZ = BF.historyRow;
+BF.historyRow = function (h) {
+  if (!h || h.action !== 'cooked' || !h.data || !Array.isArray(h.data.restores)) return _bfHistoryRowZ.apply(this, arguments);
+  var row = _bfHistoryRowZ.apply(this, arguments);
+  var meta = row.querySelector('.bf-meta');
+  var names = h.data.restores.map(function (r) { return String((r && r.name) || ''); }).filter(Boolean);
+  if (meta && names.length) meta.textContent = meta.textContent + ' · Cooked with ' + names.join(', ') + ' · saved for later';
+  return row;
+};
 
 BF.init();
 </script>
