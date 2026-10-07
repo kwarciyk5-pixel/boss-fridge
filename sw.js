@@ -13,7 +13,8 @@ const PRECACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(PRECACHE))
+      // Fresh copies, not the browser's HTTP cache, so a new version never precaches an old page.
+      .then((cache) => cache.addAll(PRECACHE.map((u) => new Request(u, { cache: 'reload' }))))
       .then(() => self.skipWaiting())
   );
 });
@@ -41,7 +42,7 @@ self.addEventListener('fetch', (event) => {
   if (req.mode === 'navigate') {
     // Network first; offline falls back to the cached shell (which shows the napping screen).
     event.respondWith(
-      fetch(req).catch(() =>
+      fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }).catch(() =>
         caches.match('./index.html').then((cached) => cached || Response.error())
       )
     );
