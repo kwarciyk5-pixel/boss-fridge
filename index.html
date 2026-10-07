@@ -1155,6 +1155,16 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* bf-v37: part of an item in Cook it */
 .bf-z-use { display: flex; flex-direction: column; gap: 8px; }
 .bf-z-use .bf-counter-val { min-width: 3ch; text-align: center; }
+/* bf-v38: When (day chips + hour / minute) and Cook it's Change place */
+.bf-a-when { display: flex; flex-direction: column; gap: 8px; }
+.bf-a-when[hidden] { display: none; }
+.bf-a-time { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bf-a-time select.bf-field { width: auto; min-width: 92px; padding-right: 28px; }
+.bf-a-date.bf-field { width: auto; min-width: 170px; }
+.bf-a-date[hidden] { display: none; }
+.bf-a-sum { margin: 0; font-weight: 800; }
+.bf-a-sum.is-bad { color: var(--bf-red, #b3261e); }
+.bf-a-place { align-self: flex-start; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -1291,7 +1301,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v37';
+var BF_VERSION = 'bf-v38';
 
 var BF = {
   sb: null,
@@ -13066,6 +13076,14 @@ BF.openCookIt = function (opts) {
     acts.appendChild(someBtn);
     acts.appendChild(laterBtn);
     form.appendChild(acts);
+    // bf-v38: Some left / Save for later go straight to the fridge; "Change place" is for the rare other place.
+    var placeBtn = BF.button('Change place', 'bf-btn-ghost bf-btn-sm bf-a-place', function () {
+      rest.hidden = !rest.hidden;
+      placeBtn.textContent = rest.hidden ? 'Change place' : 'Just the fridge';
+      placeBtn.setAttribute('aria-expanded', rest.hidden ? 'false' : 'true');
+    });
+    placeBtn.setAttribute('aria-expanded', 'false');
+    form.appendChild(placeBtn);
     var rest = BF.cookRestBox(st);
     // Some left is always a Leftover, Save for later always Ready: the "as" choice goes.
     if (rest.firstChild && rest.firstChild.tagName === 'FIELDSET') rest.removeChild(rest.firstChild);
@@ -13207,25 +13225,16 @@ BF.openCookIt = function (opts) {
       var n = dishName();
       if (n) BF.cookItSave(plan(n, 'eaten'), allBtn);
     });
-    var putAway = null;
     var choose = function (mode) {
-      if (!dishName()) return;
-      putAway = mode;
-      [[someBtn, 'left'], [laterBtn, 'later']].forEach(function (x) {
-        x[0].classList.toggle('is-on', x[1] === mode);
-        x[0].setAttribute('aria-pressed', x[1] === mode ? 'true' : 'false');
-      });
-      rest.hidden = false;
-      keep.hidden = false;
-      keep.textContent = mode === 'later' ? 'Save it' : 'Put it away';
-      keep.focus();
+      var n = dishName();
+      if (!n) return;
+      var o = plan(n, mode);
+      if (rest.hidden) o.places = [{ location: 'fridge', count: null }];
+      BF.cookItSave(o, mode === 'later' ? laterBtn : someBtn);
     };
     someBtn.addEventListener('click', function () { choose('left'); });
     laterBtn.addEventListener('click', function () { choose('later'); });
-    keep.addEventListener('click', function () {
-      var n = dishName();
-      if (n && putAway) BF.cookItSave(plan(n, putAway), keep);
-    });
+
     draw();
     box.appendChild(form);
   });
@@ -17530,6 +17539,166 @@ BF.historyRow = function (h) {
   var names = h.data.restores.map(function (r) { return String((r && r.name) || ''); }).filter(Boolean);
   if (meta && names.length) meta.textContent = meta.textContent + ' · Cooked with ' + names.join(', ') + ' · saved for later';
   return row;
+};
+
+
+/* ===================== batch AA (bf-v38): When saves exactly the day and time shown ===================== */
+/* Why: "Earlier" was one iOS date-and-time wheel, prefilled with this minute. A wrong day or am/pm slipped
+   through unseen, and the minutes stayed at the current minute (":55"). Now: day chips, an hour and a minute
+   list, and a line that says exactly what will be saved. Times are built from numbers in the phone's own
+   time zone (new Date(y, m, d, h, min)), never by parsing a date string. */
+
+/* "YYYY-MM-DDTHH:MM" (or a date alone) -> ISO, read as the phone's local time on every browser. */
+BF.aParseLocal = function (v) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2}))?/.exec(String(v == null ? '' : v));
+  if (!m) return null;
+  var d = new Date(+m[1], +m[2] - 1, +m[3], m[4] == null ? 12 : +m[4], m[5] == null ? 0 : +m[5], 0, 0);
+  return isNaN(d.getTime()) ? null : d;
+};
+BF.fromLocalInput = function (v) {
+  var d = BF.aParseLocal(v);
+  return d ? d.toISOString() : null;
+};
+BF.A_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+BF.A_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+BF.aClock = function (h, m) { return (h % 12 || 12) + ':' + BF.pad2(m) + (h < 12 ? ' am' : ' pm'); };
+BF.aTz = function () {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; }
+};
+/* "Tue 7 Oct, 5:00 pm" */
+BF.aLabel = function (d) {
+  return BF.A_DAYS[d.getDay()] + ' ' + d.getDate() + ' ' + BF.A_MONTHS[d.getMonth()] + ', ' + BF.aClock(d.getHours(), d.getMinutes());
+};
+/* Day chips (Today / Yesterday / 2 days ago / Other day) + hour + minute. start: a Date.
+   Returns { el, date() -> Date or null, onChange }. */
+BF.aTimePicker = function (start) {
+  var st = { day: BF.ymd(start), h: start.getHours(), m: Math.min(55, Math.round(start.getMinutes() / 5) * 5) };
+  var box = BF.el('div', 'bf-a-when');
+  var p = { el: box, onChange: null };
+  var days = [[BF.addDays(0), 'Today'], [BF.addDays(-1), 'Yesterday'], [BF.addDays(-2), '2 days ago']];
+  var other = BF.input({ type: 'date', value: st.day });
+  other.classList.add('bf-a-date');
+  other.max = BF.today();
+  other.setAttribute('aria-label', 'Which day');
+  var isOther = function () { return !days.some(function (x) { return x[0] === st.day; }); };
+  var dayFs = BF.pillGroup('Day', days.concat([['other', 'Other day']]),
+    function () { return isOther() ? 'other' : st.day; },
+    function (v) {
+      if (v === 'other') { other.hidden = false; if (other.value) st.day = other.value; try { other.focus(); } catch (e) { /* ignore */ } }
+      else { st.day = v; other.hidden = true; }
+      show();
+    });
+  box.appendChild(dayFs);
+  box.appendChild(other);
+  other.hidden = !isOther();
+  other.addEventListener('change', function () { if (other.value) { st.day = other.value; dayFs._sync(); show(); } });
+  var row = BF.el('div', 'bf-a-time');
+  var hour = document.createElement('select');
+  hour.className = 'bf-field';
+  hour.setAttribute('aria-label', 'Hour');
+  for (var h = 0; h < 24; h++) {
+    var o = document.createElement('option');
+    o.value = String(h);
+    o.textContent = (h % 12 || 12) + (h < 12 ? ' am' : ' pm');
+    hour.appendChild(o);
+  }
+  var min = document.createElement('select');
+  min.className = 'bf-field';
+  min.setAttribute('aria-label', 'Minutes');
+  for (var m = 0; m < 60; m += 5) {
+    var mo = document.createElement('option');
+    mo.value = String(m);
+    mo.textContent = ':' + BF.pad2(m);
+    min.appendChild(mo);
+  }
+  hour.value = String(st.h);
+  min.value = String(st.m);
+  hour.addEventListener('change', function () { st.h = +hour.value; show(); });
+  min.addEventListener('change', function () { st.m = +min.value; show(); });
+  row.appendChild(BF.el('span', 'bf-label', 'Time'));
+  row.appendChild(hour);
+  row.appendChild(min);
+  box.appendChild(row);
+  var sum = BF.el('p', 'bf-hint bf-a-sum', '');
+  sum.setAttribute('aria-live', 'polite');
+  box.appendChild(sum);
+  p.date = function () {
+    var d = BF.aParseLocal(st.day);
+    if (!d) return null;
+    d.setHours(st.h, st.m, 0, 0);
+    return d;
+  };
+  p.future = function () { var d = p.date(); return !!d && d.getTime() > Date.now() + 60000; };
+  var show = function () {
+    var d = p.date();
+    var bad = p.future();
+    sum.textContent = !d ? 'Pick a day' : bad ? BF.aLabel(d) + ' is later than now' : 'Saves as ' + BF.aLabel(d);
+    sum.classList.toggle('is-bad', bad || !d);
+    if (typeof p.onChange === 'function') p.onChange();
+  };
+  show();
+  return p;
+};
+/* "When": Now (default) or Earlier. value() = ISO for Earlier, null for Now (the server stamps it).
+   Earlier starts at today, this hour, :00. A time later than now throws, which stops the save
+   (the field shakes and the line under it says why) instead of saving a wrong time. */
+BF.whenField = function (legend) {
+  var st = { mode: 'now' };
+  var start = new Date();
+  start.setMinutes(0, 0, 0);
+  var pick = BF.aTimePicker(start);
+  var nowLine = BF.el('p', 'bf-hint bf-a-sum', '');
+  var fs = BF.pillGroup(legend || 'When', BF.WHEN_PILLS, function () { return st.mode; }, function (v) { st.mode = v; sync(); });
+  fs.classList.add('bf-when');
+  var sync = function () {
+    pick.el.hidden = st.mode !== 'pick';
+    nowLine.hidden = st.mode === 'pick';
+    nowLine.textContent = 'Saves as now (' + BF.aLabel(new Date()) + ')';
+  };
+  fs.appendChild(nowLine);
+  fs.appendChild(pick.el);
+  sync();
+  return {
+    el: fs,
+    input: null,
+    mode: function () { return st.mode; },
+    value: function () {
+      if (st.mode !== 'pick') return null;
+      var d = pick.date();
+      if (!d) return null;
+      if (pick.future()) { BF.shake(pick.el); throw new Error('When is later than now'); }
+      return d.toISOString();
+    }
+  };
+};
+/* Change time (History, Diary): the same day / hour / minute picker, starting at the saved time. */
+BF.openChangeTime = function (h) {
+  var d = h.data || {};
+  var was = new Date(BF.tsMs(d.eaten_at || h.done_at) || Date.now());
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Change time'));
+    box.appendChild(BF.el('p', 'bf-hint bf-act-meta', String(h.label == null ? '' : h.label) + ' · now ' + BF.aLabel(was)));
+    var form = BF.el('div', 'bf-form');
+    var pick = BF.aTimePicker(was);
+    var fs = BF.el('fieldset', 'bf-fieldset');
+    fs.appendChild(BF.el('legend', 'bf-label', 'Eaten at'));
+    fs.appendChild(pick.el);
+    form.appendChild(fs);
+    var save = BF.button('Save', 'bf-btn-gold bf-btn-wide');
+    save.addEventListener('click', async function () {
+      var dt = pick.date();
+      if (!dt || pick.future()) { BF.shake(pick.el); return; }
+      var at = dt.toISOString();
+      var data = Object.assign({}, d, { eaten_at: at });
+      var ok = await BF.sheetSave(save, async function () {
+        BF.q(await BF.sb.from('bf_eaten').update({ eaten_at: at }).eq('id', d.eaten_id));
+        if (h.id != null) BF.q(await BF.sb.from('bf_history').update({ data: data }).eq('id', h.id));
+      });
+      if (ok) { h.data = data; BF.toast('Time changed → ' + BF.aLabel(dt)); }
+    });
+    form.appendChild(save);
+    box.appendChild(form);
+  });
 };
 
 BF.init();
