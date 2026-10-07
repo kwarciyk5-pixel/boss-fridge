@@ -1131,6 +1131,27 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 .bf-w-qty { display: flex; align-items: center; gap: 6px; }
 .bf-w-qty .bf-field { width: 96px; text-align: center; }
 .bf-w-stock { padding: 0 12px; }
+/* bf-v36: Cook it Dish picker (pick-only; works on iOS, unlike <datalist>) */
+.bf-y-pick-row { position: relative; }
+.bf-y-pick-btn { display: flex; align-items: center; min-height: 48px; padding: 8px 14px; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.bf-y-pick.is-set .bf-y-pick-btn { padding-right: 52px; }
+.bf-y-pick-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.bf-y-pick:not(.is-set) .bf-y-pick-text { color: var(--bf-muted); font-weight: 600; }
+.bf-y-pick-btn::after { content: '\25BE'; flex: 0 0 auto; margin-left: 8px; color: var(--bf-muted); }
+.bf-y-pick.is-set .bf-y-pick-btn::after { content: none; }
+.bf-y-clear, .bf-y-opt { box-shadow: none; }
+.bf-y-clear { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); width: 40px; height: 40px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--bf-muted); font-size: 22px; font-weight: 900; line-height: 1; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.bf-y-clear[hidden] { display: none; }
+.bf-y-panel { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.bf-y-panel[hidden] { display: none; }
+.bf-y-combo { max-height: 264px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; border: 2.5px solid var(--bf-ink); border-radius: 14px; background: var(--bf-card); }
+.bf-y-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 44px; margin: 0; padding: 8px 14px; border: 0; border-top: 1.5px dashed var(--bf-line); border-radius: 0; background: transparent; color: var(--bf-ink); font-family: var(--bf-font); text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.bf-y-opt:first-child { border-top: 0; }
+.bf-y-opt:active, .bf-y-opt:focus-visible { background: var(--bf-bg); }
+.bf-y-opt-name { font-weight: 800; font-size: 15px; overflow-wrap: anywhere; }
+.bf-y-opt-meta { font-weight: 700; font-size: 12px; color: var(--bf-muted); overflow-wrap: anywhere; }
+.bf-y-opt.is-uses .bf-y-opt-meta { color: var(--bf-blue); }
+.bf-y-new .bf-y-opt-name { color: var(--bf-blue); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -1267,7 +1288,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v35';
+var BF_VERSION = 'bf-v36';
 
 var BF = {
   sb: null,
@@ -1587,7 +1608,7 @@ BF.init = function () {
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js').catch(function (e) {
+      navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(function (e) {
         console.warn('Service worker registration failed', e);
       });
     });
@@ -12914,7 +12935,7 @@ BF.cookItSave = async function (o, btn) {
   if (o.when) h.data.eaten_at = o.when;
   var dishName = o.dish;
   var ok = await BF.sheetSave(btn, async function () {
-    var ex = BF.dishByName(o.dish);
+    var ex = (o.dishId != null ? BF.findDish(o.dishId) : null) || BF.dishByName(o.dish);
     var did = ex ? ex.id : await BF.ensureDish(o.dish, 'meal', 'home');
     if (did == null) throw new Error('Library entry not saved');
     var d = ex || BF.findDish(did);
@@ -12974,16 +12995,28 @@ BF.openCookIt = function (opts) {
   var picks = {};     // String(item id) -> { on, user, picker }
   var extra = [];     // item ids added by hand (or the item it was opened from)
   if (from) { picks[String(from.id)] = { on: true, user: true }; extra.push(String(from.id)); }
+  if (opts.resume) {
+    picks = {};
+    Object.keys(opts.resume.picks || {}).forEach(function (k) { picks[k] = { on: !!opts.resume.picks[k].on, user: !!opts.resume.picks[k].user }; });
+    extra = (opts.resume.extra || []).slice();
+  }
 
   BF.openSheet(function (box) {
     box.appendChild(BF.el('h2', 'bf-sheet-title', 'Cook it'));
     var form = BF.el('div', 'bf-form');
-    var dishes = BF.lib.dishes.filter(function (d) { var c = BF.catOf(d); return c === 'meal' || c === 'side'; }).slice().sort(BF.byName);
-    box.appendChild(BF.datalist('bf-cook-dishes', dishes.map(function (d) { return String(d.name == null ? '' : d.name); })));
-    var dishIn = BF.input({ placeholder: 'e.g. Fried rice', value: dish0 ? String(dish0.name) : '' });
-    dishIn.setAttribute('list', 'bf-cook-dishes');
-    var dishWrap = BF.labelled('Dish', dishIn);
-    var err = BF.el('p', 'bf-err', 'Needs a dish name');
+    // bf-v36: Dish is picked from the Library (meals and sides), never typed; works on iPhone (no <datalist>).
+    var pickedId = dish0 ? String(dish0.id) : opts.pickId != null && BF.findDish(opts.pickId) ? String(opts.pickId) : null;
+    var dishPick = BF.yDishPicker({
+      ticked: function () { return ticked(); },
+      onPick: function (d) { pickedId = d ? String(d.id) : null; err.hidden = true; draw(); },
+      onAdd: function (text) { BF.yAddFromCook(text, { opts: opts, picks: picks, extra: extra }); }
+    });
+    var dishWrap = BF.el('div');
+    var dishLab = BF.el('label', 'bf-label', 'Dish');
+    dishLab.htmlFor = dishPick.btn.id;
+    dishWrap.appendChild(dishLab);
+    dishWrap.appendChild(dishPick.el);
+    var err = BF.el('p', 'bf-err', 'Pick a dish');
     err.hidden = true;
     err.setAttribute('role', 'alert');
     dishWrap.appendChild(err);
@@ -13042,15 +13075,14 @@ BF.openCookIt = function (opts) {
       return wrap;
     };
     var target = function () {
-      var n = dishIn.value.trim();
-      return n ? BF.dishByName(n) : null;
+      return pickedId != null ? BF.findDish(pickedId) : null;
     };
     var draw = function () {
       ingBox.replaceChildren();
       addBox.replaceChildren();
       var d = target();
-      var n = dishIn.value.trim();
-      dishNote.textContent = !n ? 'Pick a meal or side, or type a new one.' : d ? BF.dishLabel(d) + '.' : 'New dish \u2013 it joins the Library as a homemade Meal.';
+      dishPick.show(d);
+      dishNote.textContent = d ? BF.dishLabel(d) + '.' : 'Pick a meal or side from the library.';
       recipeBox.replaceChildren();
       if (d && BF.hasRecipe(d)) recipeBox.appendChild(BF.button('\ud83d\udcd6 Recipe', 'bf-btn-gold bf-btn-sm', function () { BF.openRecipe(d.id); }));
       recipeBox.hidden = !recipeBox.childNodes.length;
@@ -13066,7 +13098,8 @@ BF.openCookIt = function (opts) {
         matches.forEach(function (it) { if (!picks[String(it.id)]) picks[String(it.id)] = { on: false, user: false }; });
         var anyOn = matches.some(function (it) { return picks[String(it.id)].on; });
         var anyUser = matches.some(function (it) { return picks[String(it.id)].user; });
-        if (matches.length && !anyOn && !anyUser) picks[String(matches[0].id)].on = true;
+        // Only the dish the sheet was opened for ticks its first match; a dish picked in the field offers its rows unticked.
+        if (matches.length && !anyOn && !anyUser && dish0 && String(d.id) === String(dish0.id)) picks[String(matches[0].id)].on = true;
         matches.forEach(function (it) {
           if (shown[String(it.id)]) return;
           shown[String(it.id)] = true;
@@ -13114,22 +13147,23 @@ BF.openCookIt = function (opts) {
       return Object.keys(picks).filter(function (k) { return picks[k].on && BF.itemById(k); }).map(function (k) { return BF.itemById(k); });
     };
     var sync = function () {
-      var bad = ticked().some(function (it) { var p = pickOf(it); return p.mode !== 'none' && p.used() == null; });
+      var bad = !target() || ticked().some(function (it) { var p = pickOf(it); return p.mode !== 'none' && p.used() == null; });
       allBtn.disabled = bad;
       someBtn.disabled = bad;
       keep.disabled = bad;
     };
     var dishName = function () {
-      var n = dishIn.value.trim();
-      if (n) return n;
+      var d = target();
+      if (d) return String(d.name == null ? '' : d.name).trim();
       err.hidden = false;
-      BF.shake(dishIn);
-      dishIn.focus();
+      BF.shake(dishPick.btn);
+      dishPick.btn.focus();
       return null;
     };
     var plan = function (n, dishLeft) {
+      var d = target();
       return {
-        dish: n, dishLeft: dishLeft, when: when.value(), as: st.as,
+        dish: n, dishId: d ? d.id : null, dishLeft: dishLeft, when: when.value(), as: st.as,
         places: st.places.map(function (p) { return { location: p.location, count: p.count }; }),
         uses: ticked().map(function (it) {
           var p = pickOf(it);
@@ -13138,7 +13172,6 @@ BF.openCookIt = function (opts) {
         })
       };
     };
-    dishIn.addEventListener('input', function () { err.hidden = true; draw(); });
     allBtn.addEventListener('click', function () {
       var n = dishName();
       if (n) BF.cookItSave(plan(n, false), allBtn);
@@ -17159,6 +17192,201 @@ BF.xItemInfo = function (it) {
     return out;
   };
 });
+
+/* ===================== batch Y (bf-v36): Cook it Dish is a pick-only list of Library meals and sides ===================== */
+
+/* Meals and Sides: the dishes Cook it can make. */
+BF.yCookPool = function () {
+  return BF.lib.dishes.filter(function (d) { var c = BF.catOf(d); return c === 'meal' || c === 'side'; });
+};
+BF.yNorm = function (s) {
+  var t = BF.normName(s);
+  return typeof t.normalize === 'function' ? t.normalize('NFC') : t;
+};
+/* The ticked items a dish uses as ingredients (by ingredient_ids, else by name). */
+BF.yUsesItems = function (d, its) {
+  if (!its || !its.length) return [];
+  var slots = BF.wSlots(d);
+  if (!slots.length) return [];
+  return its.filter(function (it) {
+    if (it.dish_id != null && String(it.dish_id) === String(d.id)) return false;
+    return slots.some(function (sl) {
+      if (sl.ids && it.dish_id != null) return sl.ids.indexOf(String(it.dish_id)) >= 0;
+      return BF.itemMatches(it, BF.altsOf(BF.wSlotLine(sl)), d);
+    });
+  });
+};
+/* Search (any case; English or the Burmese in brackets), then: uses a ticked item, favourites, A-Z. */
+BF.yCookList = function (q, its) {
+  var t = BF.yNorm(q);
+  return BF.yCookPool()
+    .filter(function (d) { return !t || BF.yNorm(d.name).indexOf(t) >= 0; })
+    .map(function (d) { return { d: d, uses: BF.yUsesItems(d, its) }; })
+    .sort(function (a, b) {
+      return (b.uses.length ? 1 : 0) - (a.uses.length ? 1 : 0) || (b.d.favourite ? 1 : 0) - (a.d.favourite ? 1 : 0) || BF.byName(a.d, b.d);
+    });
+};
+/* The Dish field: a button that opens a search box and list under it. Typed text never becomes a dish.
+   o.ticked() -> items ticked under Used; o.onPick(dish, or null when cleared); o.onAdd(search text). */
+BF.yDishPicker = function (o) {
+  var wrap = BF.el('div', 'bf-y-pick');
+  var row = BF.el('div', 'bf-y-pick-row');
+  var btn = BF.el('button', 'bf-field bf-y-pick-btn');
+  btn.type = 'button';
+  btn.id = 'bf-y-dish-' + Math.random().toString(36).slice(2, 9);
+  btn.setAttribute('aria-haspopup', 'listbox');
+  btn.setAttribute('aria-expanded', 'false');
+  var txt = BF.el('span', 'bf-y-pick-text', '');
+  btn.appendChild(txt);
+  row.appendChild(btn);
+  var clr = BF.button('×', 'bf-y-clear', function () { close(); o.onPick(null); }, 'Clear dish');
+  row.appendChild(clr);
+  wrap.appendChild(row);
+  var panel = BF.el('div', 'bf-y-panel');
+  panel.hidden = true;
+  var q = BF.input({ type: 'search', placeholder: 'Search meals and sides' });
+  q.setAttribute('aria-label', 'Search meals and sides');
+  q.setAttribute('autocorrect', 'off');
+  q.setAttribute('autocapitalize', 'off');
+  q.setAttribute('spellcheck', 'false');
+  q.setAttribute('enterkeyhint', 'search');
+  panel.appendChild(q);
+  var list = BF.el('div', 'bf-y-combo');
+  list.id = btn.id + '-list';
+  list.setAttribute('role', 'listbox');
+  list.setAttribute('aria-label', 'Meals and sides in the Library');
+  btn.setAttribute('aria-controls', list.id);
+  panel.appendChild(list);
+  wrap.appendChild(panel);
+  var opt = function (cls, name, meta, onTap) {
+    var b = BF.el('button', 'bf-y-opt ' + cls);
+    b.type = 'button';
+    b.setAttribute('role', 'option');
+    b.appendChild(BF.el('span', 'bf-y-opt-name', name));
+    if (meta) b.appendChild(BF.el('span', 'bf-y-opt-meta', meta));
+    b.addEventListener('click', onTap);
+    return b;
+  };
+  var first = null;
+  var render = function () {
+    list.replaceChildren();
+    first = null;
+    var t = q.value.trim();
+    var rows = BF.yCookList(t, o.ticked() || []);
+    rows.forEach(function (r) {
+      var meta = [BF.catLabel(BF.catOf(r.d))];
+      if (r.uses.length) meta.unshift('Uses ' + r.uses.map(function (it) { return String(it.name == null ? '' : it.name).trim(); }).join(', '));
+      list.appendChild(opt(r.uses.length ? 'is-uses' : '', (r.d.favourite ? '★ ' : '') + String(r.d.name).trim(), meta.join(' · '), function () { pick(r.d); }));
+    });
+    if (rows.length) first = rows[0].d;
+    else list.appendChild(opt('bf-y-new', 'Not in the library — add it', t ? '“' + t + '”' : '', function () { close(); o.onAdd(t); }));
+  };
+  var open = function () {
+    q.value = '';
+    render();
+    panel.hidden = false;
+    list.scrollTop = 0;
+    btn.setAttribute('aria-expanded', 'true');
+    // Inside the tap, so iOS opens the keyboard.
+    try { q.focus({ preventScroll: true }); } catch (e) { q.focus(); }
+  };
+  var close = function () {
+    panel.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+  };
+  var pick = function (d) {
+    close();
+    q.blur();
+    o.onPick(d);
+  };
+  btn.addEventListener('click', function () { if (panel.hidden) open(); else close(); });
+  q.addEventListener('input', render);
+  q.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { e.stopPropagation(); close(); btn.focus(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (first) pick(first); }
+  });
+  /* A tap anywhere else closes the list. The listener goes with the sheet. */
+  var outside = function (e) {
+    if (!document.contains(wrap)) { document.removeEventListener('pointerdown', outside, true); return; }
+    if (!panel.hidden && !wrap.contains(e.target)) close();
+  };
+  document.addEventListener('pointerdown', outside, true);
+  return {
+    el: wrap,
+    btn: btn,
+    close: close,
+    show: function (d) {
+      txt.textContent = d ? String(d.name).trim() : 'Pick a dish';
+      wrap.classList.toggle('is-set', !!d);
+      clr.hidden = !d;
+      if (d) clr.setAttribute('aria-label', 'Clear dish: ' + String(d.name).trim());
+    }
+  };
+};
+
+/* "Not in the library - add it": the usual Add to the Library sheet, name filled in. Closing it (saved or not)
+   goes back to Cook it with the same ticks; a saved Meal or Side comes back picked. */
+BF._yBack = null;
+BF.yAddFromCook = function (text, state) {
+  var picks = {};
+  Object.keys(state.picks || {}).forEach(function (k) { picks[k] = { on: !!state.picks[k].on, user: !!state.picks[k].user }; });
+  var back = { itemId: state.opts ? state.opts.itemId : null, resume: { picks: picks, extra: (state.extra || []).slice() }, saved: null, form: null };
+  BF._yBack = null;
+  BF.openDishSheet(null);
+  var body = BF.$('bf-sheet-body');
+  var form = body && body.querySelector('.bf-form');
+  if (!form) return;
+  back.form = form;
+  var nameIn = form.querySelector('input.bf-field');
+  if (nameIn && text) {
+    nameIn.value = text;
+    nameIn.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  var save = Array.prototype.filter.call(form.querySelectorAll('button.bf-btn-gold.bf-btn-wide'), function (b) { return b.textContent === 'Add'; })[0];
+  if (save && nameIn) save.addEventListener('click', function () { back.saved = nameIn.value.trim(); }, true);
+  form.appendChild(BF.button('Back to Cook it', 'bf-btn-ghost bf-btn-wide', function () { BF.closeSheet(); }));
+  BF._yBack = back;
+};
+BF.yBackToCook = async function (b) {
+  var d = b.saved ? BF.dishByName(b.saved) : null;
+  if (b.saved && !d) {
+    try { await BF.loadLibrary(); } catch (e) { console.warn('library reload failed', e); }
+    d = BF.dishByName(b.saved);
+  }
+  if (!BF.$('bf-sheet').hidden) return;
+  var c = d ? BF.catOf(d) : null;
+  BF.openCookIt({ itemId: b.itemId, pickId: d && (c === 'meal' || c === 'side') ? d.id : null, resume: b.resume });
+};
+var _bfCloseSheetY = BF.closeSheet;
+BF.closeSheet = function () {
+  var b = BF._yBack;
+  var mine = !!(b && b.form && document.contains(b.form));
+  var out = _bfCloseSheetY.apply(this, arguments);
+  if (mine) { BF._yBack = null; BF.yBackToCook(b); }
+  return out;
+};
+
+/* ---------- installed home-screen apps pick up a new version ---------- */
+/* sw.js is never taken from the HTTP cache (see register), the app checks for an update each time it comes back,
+   and a new worker taking over reloads the page (at once if no sheet is open, else on the next return). */
+BF.ySwUpdate = function () {
+  if (!('serviceWorker' in navigator)) return;
+  var had = !!navigator.serviceWorker.controller;
+  var due = false;
+  var reload = function () { if (!due) return; due = false; location.reload(); };
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (!had) { had = true; return; }
+    due = true;
+    var sheet = BF.$('bf-sheet');
+    if (!sheet || sheet.hidden) reload();
+  });
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible') return;
+    if (due) { reload(); return; }
+    navigator.serviceWorker.getRegistration().then(function (r) { if (r) return r.update(); }).catch(function () { /* offline */ });
+  });
+};
+BF.ySwUpdate();
 
 BF.init();
 </script>
