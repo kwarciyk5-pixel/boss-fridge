@@ -1168,6 +1168,25 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+/* bf-v39: whole number + fraction pickers; no double-tap zoom (pinch zoom still works) */
+html, button, a, input, select, textarea, label, .bf-pill, .bf-square, [role="button"] { touch-action: manipulation; }
+.bf-ab-qty { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.bf-ab-qty[hidden], .bf-ab-fracs[hidden], .bf-w-qty[hidden] { display: none !important; }
+.bf-ab-line { flex-wrap: nowrap; }
+.bf-ab-sq { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.bf-ab-sq:disabled { opacity: .35; }
+input.bf-ab-whole { flex: 0 0 auto; width: 64px; min-width: 0; min-height: 44px; height: 44px; padding: 0 4px; border-radius: 12px; text-align: center; font-family: var(--bf-font-head); font-size: 22px; font-weight: 700; -moz-appearance: textfield; }
+input.bf-ab-whole::-webkit-outer-spin-button, input.bf-ab-whole::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input.bf-ab-whole::placeholder { color: var(--bf-muted); }
+.bf-ab-small input.bf-ab-whole { width: 40px; min-height: 34px; height: 34px; border-radius: 10px; font-size: 18px; }
+.bf-ab-fracs { display: flex; flex-wrap: nowrap; gap: 6px; max-width: 340px; }
+.bf-ab-fracs .bf-pill { flex: 1 1 0; min-width: 0; min-height: 40px; padding: 0 2px; font-size: 18px; line-height: 1; }
+.bf-ab-fracs.bf-ab-small .bf-pill { min-height: 34px; font-size: 16px; }
+.bf-ab-fracs .bf-pill:disabled { opacity: .3; cursor: default; }
+.bf-ab-amt .bf-ab-line .bf-pill { flex: 0 0 auto; }
+.bf-ab-iamt { flex-wrap: wrap; row-gap: 8px; }
+.bf-ab-iamt > .bf-ab-fracs { order: 10; flex: 1 0 100%; }
+.bf-w-qty + .bf-ab-qty { margin-top: 0; }
 </style>
 </head>
 <body>
@@ -1301,7 +1320,7 @@ textarea.bf-field.bf-sticky-input { min-height: 110px; color: #1D3447; border-co
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v38';
+var BF_VERSION = 'bf-v39';
 
 var BF = {
   sb: null,
@@ -15800,21 +15819,15 @@ BF.openItemSheet = function (id, opts) {
 
     // --- Amount: [-] 2 [+]  Count g ml   (g / ml: a number box instead of the stepper) ---
     var amt = BF.el('div', 'bf-irow-body bf-iamt');
-    var counter = BF.el('div', 'bf-icounter');
-    var val = BF.el('span', 'bf-counter-val', '');
-    val.setAttribute('aria-live', 'polite');
-    var showCount = function () { val.textContent = st.count == null ? '\u2013' : String(st.count); };
-    counter.appendChild(BF.button('\u2212', 'bf-square bf-isq', function () {
-      if (st.count == null) return;
-      st.count = st.count <= 1 ? null : st.count - 1;
-      showCount();
-    }, 'One less'));
-    counter.appendChild(val);
-    counter.appendChild(BF.button('+', 'bf-square bf-isq', function () {
-      st.count = st.count == null ? 1 : st.count + 1;
-      showCount();
-    }, 'One more'));
+    // batch AB (bf-v39): whole number + fraction (BF.abQty); the fraction chips sit on their own line in this row.
+    var abq = BF.abQty({ value: st.count, blank: true, small: true, label: 'Amount' });
+    abq.onChange = function () { st.count = abq.value(); };
+    var counter = abq.line;
+    counter.classList.add('bf-icounter');
+    var showCount = function () { abq.set(st.count); abq.fracs.hidden = !!st.unit; };
+    amt.classList.add('bf-ab-iamt');
     amt.appendChild(counter);
+    amt.appendChild(abq.fracs);
     var amtIn = BF.input({ type: 'number', placeholder: 'e.g. 500' });
     amtIn.className = 'bf-field bf-chip-num bf-iamt-in';
     amtIn.min = '0';
@@ -16808,12 +16821,25 @@ BF.openBoughtStock = function (id) {
     qrow.appendChild(BF.button('+', 'bf-square', function () { setQ((Number(st.qty) || 0) + 1); }, 'One more'));
     qrow.appendChild(unitEl);
     qin.addEventListener('input', function () { var n = Number(qin.value); st.qty = n > 0 ? n : null; });
+    // batch AB (bf-v39): a plain count picks whole number + fraction; g / ml keep the number box.
+    var abq = BF.abQty({ value: st.qty, label: 'How many' });
+    abq.onChange = function () { st.qty = abq.value(); };
+    var showUnitW = showUnit;
+    showUnit = function () {
+      showUnitW();
+      var u = !!unitOf();
+      if (u && qrow.hidden) setQ(st.qty == null ? 1 : st.qty);
+      if (!u && abq.el.hidden) abq.set(st.qty);
+      qrow.hidden = !u;
+      abq.el.hidden = u;
+    };
     form.appendChild(BF.el('p', 'bf-label', 'How many'));
     form.appendChild(qrow);
+    form.appendChild(abq.el);
     showUnit();
     var go = BF.button('Add to stock', 'bf-btn-primary bf-btn-wide bf-act-main');
     go.addEventListener('click', function () {
-      if (!(st.qty > 0)) { BF.shake(qin); qin.focus(); return; }
+      if (!(st.qty > 0)) { if (qrow.hidden) BF.shake(abq.el); else { BF.shake(qin); qin.focus(); } return; }
       BF.boughtStockSave(id, { target: st.target, location: st.location, qty: Number(st.qty) }, go);
     });
     form.appendChild(go);
@@ -16830,10 +16856,10 @@ BF.boughtStockSave = async function (id, o, btn) {
   var name = String(d.name).trim();
   var t = o.target != null ? BF.findItem(o.target) : null;
   var unit = t ? BF.unitOf(t) : BF.parseAmount(g.name).unit;
-  var qty = unit ? Math.round(o.qty) : Math.max(1, Math.round(o.qty));
+  var qty = unit ? Math.round(o.qty) : (BF.abSnap(o.qty) > 0 ? BF.abSnap(o.qty) : 1);
   var h = { id: null, action: 'bought', label: g.name, data: { grocery_id: id, item_id: null, dish_id: d.id, topup: null } };
   var before = t ? (t.count == null ? null : Number(t.count)) : null;
-  var after = t ? (before == null ? 1 : before) + qty : qty;
+  var after = BF.abSnap(t ? (before == null ? 1 : before) + qty : qty);
   var ok = await BF.sheetSave(btn, async function () {
     BF.q(await BF.sb.from('bf_groceries')
       .update({ status: 'bought', bought_by: BF.myEmail(), bought_at: new Date().toISOString() })
@@ -16872,7 +16898,7 @@ BF.wAteSaveCore = async function (it, o, btn) {
     if (o.leftover && !old.leftover && !old.expiry) patch.expiry = BF.addDays(3);
     if (o.rem != null) patch.count = o.rem;
   }
-  var portions = !use && !unit && o.used != null && Number(o.used) >= 1 ? Math.round(Number(o.used)) : 1;
+  var portions = !use && !unit && o.used != null && Number(o.used) > 0 ? Math.max(1, Math.ceil(Number(o.used) - 0.001)) : 1;
   var h = { id: null, action: action, label: name, data: {
     restore: old, eaten_id: null, eaten_ids: [], deleted: !!o.gone,
     used: o.used == null ? null : o.used, left: o.gone ? 0 : (o.rem == null ? null : o.rem), unit: unit
@@ -17699,6 +17725,307 @@ BF.openChangeTime = function (h) {
     form.appendChild(save);
     box.appendChild(form);
   });
+};
+
+
+/* ===================== batch AB (bf-v39): whole number + fraction pickers; no double-tap zoom ===================== */
+/* Why: picking "2 1/2" took ten taps of a quarter stepper, and quick taps zoomed the page.
+   Now one picker everywhere a plain count is chosen: [-] whole [+] (hold to repeat, tap the number to type)
+   and a row of fraction chips 0 1/4 1/3 1/2 2/3 3/4. g / ml amounts keep their number box. */
+
+BF.AB_FRACS = [
+  [0, '0', 'No fraction'],
+  [1 / 4, '\u00bc', 'A quarter'],
+  [1 / 3, '\u2153', 'A third'],
+  [1 / 2, '\u00bd', 'A half'],
+  [2 / 3, '\u2154', 'Two thirds'],
+  [3 / 4, '\u00be', 'Three quarters']
+];
+BF.AB_EPS = 0.005;
+/* Nearest twelfth when close (so 3 x 1/3 = 1 and 2 - 1/3 = 1 2/3), then 4 decimals. */
+BF.abSnap = function (n) {
+  var x = Number(n);
+  if (!isFinite(x)) return n;
+  var t = Math.round(x * 12);
+  if (Math.abs(t / 12 - x) < BF.AB_EPS) x = t / 12;
+  return BF.zRound(x);
+};
+/* 1.5 -> "1\u00bd", 1/3 -> "\u2153", 5/3 -> "1\u2154", 3 -> "3", 1.4 -> "1.4". Replaces batch Z's quarters-only one. */
+BF.AB_GLYPH = { 3: '\u00bc', 4: '\u2153', 6: '\u00bd', 8: '\u2154', 9: '\u00be' };
+BF.zFrac = function (n) {
+  var x = Number(n);
+  if (!isFinite(x)) return String(n);
+  var t = Math.round(x * 12);
+  if (Math.abs(t / 12 - x) >= BF.AB_EPS) return BF.trimNum(x);
+  var whole = Math.floor(t / 12);
+  var part = t - whole * 12;
+  if (!part) return String(whole);
+  if (!BF.AB_GLYPH[part]) return BF.trimNum(x);
+  return (whole ? String(whole) : '') + BF.AB_GLYPH[part];
+};
+/* "Left": a third reads "\u2153 left", not "33% left". */
+var _bfLevelTextAB = BF.levelText;
+BF.levelText = function (lv) {
+  var t = _bfLevelTextAB.apply(this, arguments);
+  if (t && t.indexOf('%') >= 0) {
+    var g = BF.zFrac(Number(lv));
+    if (g && g.indexOf('.') < 0 && g !== '0' && g !== '1') return g + ' left';
+  }
+  return t;
+};
+
+/* - / + that repeat while held (after 400 ms, every 120 ms). A hold never adds one more step on release. */
+BF.abHoldButton = function (text, cls, step, aria) {
+  var b = BF.button(text, cls, function () {
+    if (b._abHeld) { b._abHeld = false; return; }
+    step();
+  }, aria);
+  var t1 = null;
+  var t2 = null;
+  var stop = function () {
+    if (t1) clearTimeout(t1);
+    if (t2) clearInterval(t2);
+    t1 = null;
+    t2 = null;
+  };
+  b.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    stop();
+    b._abHeld = false;
+    t1 = setTimeout(function () {
+      t1 = null;
+      if (b.disabled) return;
+      b._abHeld = true;
+      step();
+      t2 = setInterval(function () { if (b.disabled) { stop(); return; } step(); }, 120);
+    }, 400);
+  });
+  ['pointerup', 'pointercancel', 'pointerleave', 'blur'].forEach(function (ev) { b.addEventListener(ev, stop); });
+  b.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  return b;
+};
+
+/* The picker. opts: { value, max, blank, small, label }.
+   Returns { el, line, fracs, value(), set(n), onChange }. value() is a number > 0, or null (blank / nothing picked). */
+BF.abQty = function (opts) {
+  opts = opts || {};
+  var eps = BF.AB_EPS;
+  var max = opts.max != null && isFinite(Number(opts.max)) ? BF.abSnap(Number(opts.max)) : null;
+  var maxWhole = max == null ? Infinity : Math.floor(max + eps);
+  var blank = !!opts.blank;
+  var q = { onChange: null };
+  var st = { blank: false, whole: 1, frac: 0, odd: null };
+  var fire = function () { if (typeof q.onChange === 'function') q.onChange(); };
+  var fracNow = function () { return st.odd != null ? st.odd : st.frac; };
+  var fits = function (w, f) { return max == null || w + f <= max + eps; };
+  var load = function (v) {
+    st.odd = null;
+    st.frac = 0;
+    if (v == null || v === '' || !isFinite(Number(v)) || !(Number(v) > 0)) {
+      st.blank = blank;
+      st.whole = blank ? 0 : 1;
+      if (!blank && max != null && max < 1) { st.whole = 0; st.frac = 0; }
+      return;
+    }
+    var x = BF.abSnap(Number(v));
+    var w = Math.floor(x + eps);
+    var f = BF.zRound(Math.max(0, x - w));
+    st.blank = false;
+    st.whole = w;
+    var hit = null;
+    BF.AB_FRACS.forEach(function (c) { if (Math.abs(c[0] - f) < eps) hit = c[0]; });
+    if (hit == null) st.odd = f;
+    else st.frac = hit;
+  };
+  /* After the whole number changes: a fraction that no longer fits drops to the biggest one that does. */
+  var fitFrac = function () {
+    if (max == null || st.blank) return;
+    if (st.whole > maxWhole) st.whole = maxWhole;
+    if (fits(st.whole, fracNow())) return;
+    st.odd = null;
+    var best = 0;
+    BF.AB_FRACS.forEach(function (c) { if (fits(st.whole, c[0])) best = c[0]; });
+    st.frac = best;
+  };
+  var total = function () {
+    if (st.blank) return null;
+    var t = BF.abSnap(st.whole + fracNow());
+    return t > 0 ? t : null;
+  };
+  q.value = total;
+
+  var el = BF.el('div', 'bf-ab-qty' + (opts.small ? ' bf-ab-small' : ''));
+  var line = BF.el('div', 'bf-counter bf-ab-line' + (opts.small ? ' bf-ab-small' : ''));
+  var sq = opts.small ? 'bf-square bf-isq bf-ab-sq' : 'bf-square bf-ab-sq';
+  var inp = BF.input({ type: 'number', placeholder: '\u2013' });
+  inp.className = 'bf-field bf-ab-whole';
+  inp.min = '0';
+  inp.step = '1';
+  inp.setAttribute('inputmode', 'numeric');
+  inp.setAttribute('pattern', '[0-9]*');
+  inp.setAttribute('aria-label', (opts.label || 'How many') + ': whole number');
+  var minus = BF.abHoldButton('\u2212', sq, function () {
+    if (st.blank) return;
+    if (st.whole > 1 || (st.whole === 1 && fracNow() > 0)) st.whole--;
+    else if (blank) { st.blank = true; st.whole = 0; st.frac = 0; st.odd = null; }
+    else return;
+    draw();
+    fire();
+  }, 'One less');
+  var plus = BF.abHoldButton('+', sq, function () {
+    if (st.blank) { st.blank = false; st.whole = Math.min(1, maxWhole); st.frac = 0; st.odd = null; if (!st.whole) return; }
+    else if (st.whole < maxWhole) st.whole++;
+    else return;
+    fitFrac();
+    draw();
+    fire();
+  }, 'One more');
+  line.appendChild(minus);
+  line.appendChild(inp);
+  line.appendChild(plus);
+
+  var fracs = BF.el('div', 'bf-pills bf-ab-fracs' + (opts.small ? ' bf-ab-small' : ''));
+  fracs.setAttribute('role', 'group');
+  fracs.setAttribute('aria-label', 'Fraction');
+  var chips = BF.AB_FRACS.map(function (c) {
+    var b = BF.el('button', 'bf-pill bf-ab-frac', c[1]);
+    b.type = 'button';
+    b.setAttribute('aria-label', c[2]);
+    b.addEventListener('click', function () {
+      if (b.disabled) return;
+      var on = st.odd == null && Math.abs(st.frac - c[0]) < eps && !st.blank;
+      if (st.blank) { st.blank = false; st.whole = 0; }
+      st.odd = null;
+      st.frac = on ? 0 : c[0];
+      if (blank && st.whole === 0 && st.frac === 0) st.blank = true;
+      draw();
+      fire();
+    });
+    fracs.appendChild(b);
+    return [b, c[0]];
+  });
+  el.appendChild(line);
+  el.appendChild(fracs);
+
+  var typing = false;
+  var draw = function () {
+    if (!typing) inp.value = st.blank ? '' : String(st.whole);
+    minus.disabled = st.blank || !(st.whole > 1 || (st.whole === 1 && fracNow() > 0) || blank);
+    plus.disabled = !st.blank && st.whole >= maxWhole;
+    chips.forEach(function (c) {
+      var on = !st.blank && st.odd == null && Math.abs(st.frac - c[1]) < eps;
+      if (st.blank && c[1] === 0) on = true;
+      c[0].classList.toggle('is-on', on);
+      c[0].setAttribute('aria-pressed', on ? 'true' : 'false');
+      c[0].disabled = !fits(st.blank ? 0 : st.whole, c[1]);
+    });
+  };
+  inp.addEventListener('focus', function () { typing = true; });
+  inp.addEventListener('input', function () {
+    var v = String(inp.value).trim();
+    if (v === '') {
+      if (blank && fracNow() === 0) st.blank = true;
+      else { st.blank = false; st.whole = 0; }
+    } else {
+      var n = Math.floor(Number(v.replace(',', '.')));
+      if (!(n >= 0)) return;
+      st.blank = false;
+      st.whole = Math.min(n, maxWhole);
+      fitFrac();
+    }
+    draw();
+    fire();
+  });
+  inp.addEventListener('blur', function () {
+    typing = false;
+    if (!st.blank && st.whole === 0 && fracNow() === 0 && blank) st.blank = true;
+    draw();
+  });
+
+  q.set = function (v) {
+    load(v);
+    fitFrac();
+    typing = false;
+    draw();
+  };
+  q.el = el;
+  q.line = line;
+  q.fracs = fracs;
+  q.input = inp;
+  q.set(opts.value);
+  return q;
+};
+
+/* ---------- Ate it / Used up and Move some: count mode = whole + fraction (+ All) ---------- */
+var _bfAmountPickerAB = BF.amountPicker;
+BF.amountPicker = function (it, opts) {
+  opts = opts || {};
+  var unit = BF.unitOf(it);
+  var count = it.count == null ? null : Number(it.count);
+  if (unit || count == null || !(count > 1)) return _bfAmountPickerAB.apply(this, arguments);
+  count = BF.abSnap(count);
+  var p = { mode: 'count', count: count, unit: null, onChange: null };
+  var fire = function () { if (typeof p.onChange === 'function') p.onChange(); };
+  var fs = BF.el('fieldset', 'bf-fieldset bf-amt bf-ab-amt');
+  fs.appendChild(BF.el('legend', 'bf-label', opts.legend || 'How much'));
+  p.el = fs;
+  var q = BF.abQty({ value: opts.all ? count : 1, max: count, label: opts.legend || 'How much' });
+  var allC = BF.el('button', 'bf-pill', 'All');
+  allC.type = 'button';
+  allC.setAttribute('aria-label', 'All (' + BF.zFrac(count) + ')');
+  var show = function () {
+    var u = q.value();
+    var on = u != null && Math.abs(u - count) < BF.AB_EPS;
+    allC.classList.toggle('is-on', on);
+    allC.setAttribute('aria-pressed', on ? 'true' : 'false');
+  };
+  allC.addEventListener('click', function () { q.set(count); show(); fire(); });
+  q.onChange = function () { show(); fire(); };
+  q.line.appendChild(allC);
+  fs.appendChild(q.el);
+  show();
+  p.used = function () { return q.value(); };
+  p.isAll = function () { var u = q.value(); return u != null && u >= count - BF.AB_EPS; };
+  p.rem = function () { var u = q.value(); return u == null ? null : Math.max(0, BF.abSnap(count - u)); };
+  return p;
+};
+
+/* ---------- Cook it "How much did you use": counts get whole + fraction (+ All); level-only items unchanged ---------- */
+var _bfZUsePickerAB = BF.zUsePicker;
+BF.zUsePicker = function (it, opts) {
+  opts = opts || {};
+  var count = it.count == null ? null : Number(it.count);
+  if (!(count != null && count > 0)) return _bfZUsePickerAB.apply(this, arguments);
+  var base = BF.abSnap(count);
+  var p = { mode: 'frac', count: count, unit: null, onChange: null };
+  var fire = function () { if (typeof p.onChange === 'function') p.onChange(); };
+  var fs = BF.el('fieldset', 'bf-fieldset bf-amt bf-z-use bf-ab-amt');
+  fs.appendChild(BF.el('legend', 'bf-label', opts.legend || 'How much'));
+  p.el = fs;
+  var q = BF.abQty({ value: base, max: base, label: opts.legend || 'How much' });
+  var allC = BF.el('button', 'bf-pill', 'All');
+  allC.type = 'button';
+  allC.setAttribute('aria-label', 'All of it (' + BF.zFrac(base) + ')');
+  var show = function () {
+    var u = q.value();
+    var on = u != null && Math.abs(u - base) < BF.AB_EPS;
+    allC.classList.toggle('is-on', on);
+    allC.setAttribute('aria-pressed', on ? 'true' : 'false');
+  };
+  allC.addEventListener('click', function () { q.set(base); show(); fire(); });
+  q.onChange = function () { show(); fire(); };
+  q.line.appendChild(allC);
+  fs.appendChild(q.el);
+  show();
+  p.used = function () { return q.value(); };
+  p.isAll = function () { var u = q.value(); return u != null && u >= base - BF.AB_EPS; };
+  p.rem = function () { var u = q.value(); return u == null ? base : Math.max(0, BF.abSnap(base - u)); };
+  p.patch = function () {
+    var r = p.rem();
+    if (r <= 0) return null;
+    return r >= 1 ? { count: r } : { count: null, level: r };
+  };
+  return p;
 };
 
 BF.init();
