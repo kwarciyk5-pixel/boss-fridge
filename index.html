@@ -1187,6 +1187,10 @@ input.bf-ab-whole::placeholder { color: var(--bf-muted); }
 .bf-ab-iamt { flex-wrap: wrap; row-gap: 8px; }
 .bf-ab-iamt > .bf-ab-fracs { order: 10; flex: 1 0 100%; }
 .bf-w-qty + .bf-ab-qty { margin-top: 0; }
+/* bf-v40: "A little" */
+.bf-ac-row { margin-top: 2px; }
+.bf-ac-little { flex: 0 0 auto; }
+.bf-ac-is-little .bf-ab-qty { opacity: .45; }
 </style>
 </head>
 <body>
@@ -1320,7 +1324,7 @@ input.bf-ab-whole::placeholder { color: var(--bf-muted); }
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v39';
+var BF_VERSION = 'bf-v40';
 
 var BF = {
   sb: null,
@@ -16904,6 +16908,8 @@ BF.wAteSaveCore = async function (it, o, btn) {
     used: o.used == null ? null : o.used, left: o.gone ? 0 : (o.rem == null ? null : o.rem), unit: unit
   } };
   if (when && !use) h.data.eaten_at = when;
+  var little = !!o.little || (!o.gone && o.used === 0);
+  if (little) h.data.little = true;
   var ok = await BF.sheetSave(btn, async function () {
     if (o.gone) BF.q(await BF.sb.from('bf_items').delete().eq('id', old.id));
     else BF.q(await BF.sb.from('bf_items').update(patch).eq('id', old.id));
@@ -16926,6 +16932,7 @@ BF.wAteSaveCore = async function (it, o, btn) {
   if (!o.gone && o.rem != null) msg = verb + ' ' + BF.amountWords(o.used, unit) + ' of ' + name + ' \u00b7 ' + BF.amountWords(o.rem, unit) + ' left';
   else if (!o.gone) msg = verb + ' some ' + name + ' \u00b7 rest in the ' + BF.locLabel(o.location).toLowerCase();
   else if (!use && portions > 1) msg = 'Ate ' + portions + ' ' + name;
+  if (little) msg = (use ? 'Used' : 'Ate') + ' a little ' + name;
   BF.toast(msg, function () { BF.putBack(h); });
 };
 /* Same outer steps as before (batch T's "+ Running low" offer, batch U's auto-add to Shop) around the new core. */
@@ -17893,10 +17900,11 @@ BF.abQty = function (opts) {
     b.setAttribute('aria-label', c[2]);
     b.addEventListener('click', function () {
       if (b.disabled) return;
-      var on = st.odd == null && Math.abs(st.frac - c[0]) < eps && !st.blank;
+      var on = b.getAttribute('aria-pressed') === 'true' && !st.blank;
       if (st.blank) { st.blank = false; st.whole = 0; }
       st.odd = null;
       st.frac = on ? 0 : c[0];
+      if (!fits(st.whole, st.frac)) st.whole = Math.max(0, Math.floor(max - st.frac + eps));
       if (blank && st.whole === 0 && st.frac === 0) st.blank = true;
       draw();
       fire();
@@ -17917,7 +17925,7 @@ BF.abQty = function (opts) {
       if (st.blank && c[1] === 0) on = true;
       c[0].classList.toggle('is-on', on);
       c[0].setAttribute('aria-pressed', on ? 'true' : 'false');
-      c[0].disabled = !fits(st.blank ? 0 : st.whole, c[1]);
+      c[0].disabled = max != null && c[1] > max + eps;
     });
   };
   inp.addEventListener('focus', function () { typing = true; });
@@ -18026,6 +18034,123 @@ BF.zUsePicker = function (it, opts) {
     return r >= 1 ? { count: r } : { count: null, level: r };
   };
   return p;
+};
+
+
+/* ===================== batch AC (bf-v40): "A little" (nothing comes off the stock); fractions fit by lowering the whole number ===================== */
+/* Why: a little oil, salt or rice in one dish is not a countable part. "A little" is noted in History (and the Diary
+   for food you ate), and the item keeps its amount exactly. Shown in Ate it, Used up and Cook it; never in Move some. */
+
+/* Adds an "A little" chip to a picker (amountPicker or zUsePicker result). While it is on:
+   used() = 0, isAll() = false, rem() = the amount as it is (null when there is none), patch() = null. */
+BF.acAddLittle = function (p, row) {
+  if (!p || !p.el || !row || p._acLittle) return p;
+  p._acLittle = true;
+  p.little = function () { return !!p._little; };
+  var b = BF.el('button', 'bf-pill bf-ac-little', 'A little');
+  b.type = 'button';
+  b.setAttribute('aria-pressed', 'false');
+  b.setAttribute('aria-label', 'A little (nothing comes off the stock)');
+  var saved = [];
+  var setOn = function (on) {
+    p._little = on;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    p.el.classList.toggle('bf-ac-is-little', on);
+    if (on) {
+      saved = Array.prototype.filter.call(p.el.querySelectorAll('.is-on'), function (x) { return x !== b; });
+      saved.forEach(function (x) { x.classList.remove('is-on'); x.setAttribute('aria-pressed', 'false'); });
+    } else {
+      saved.forEach(function (x) { x.classList.add('is-on'); x.setAttribute('aria-pressed', 'true'); });
+      saved = [];
+    }
+  };
+  var hideRest = function () {
+    var form = p.el.parentNode;
+    var rest = form && form.querySelector ? form.querySelector('.bf-rest') : null;
+    if (rest && p._little) rest.hidden = true;
+  };
+  var fire = function () {
+    if (typeof p.onChange === 'function') p.onChange();
+    hideRest();
+  };
+  b.addEventListener('click', function () { setOn(!p._little); fire(); });
+  /* Touching anything else in the picker turns "A little" off first (its own handler then sets the new amount). */
+  var off = function (e) {
+    if (!p._little) return;
+    var t = e.target && e.target.closest ? e.target.closest('button, input') : null;
+    if (!t || t === b) return;
+    saved = [];
+    setOn(false);
+  };
+  p.el.addEventListener('click', off, true);
+  p.el.addEventListener('input', off, true);
+  p.el.addEventListener('pointerdown', off, true);
+  row.appendChild(b);
+  var u0 = p.used, a0 = p.isAll, r0 = p.rem, pa0 = p.patch;
+  p.used = function () { return p._little ? 0 : u0.apply(p, arguments); };
+  p.isAll = function () { return p._little ? false : (a0 ? a0.apply(p, arguments) : false); };
+  p.rem = function () {
+    if (!p._little) return r0 ? r0.apply(p, arguments) : null;
+    return p.mode === 'none' || p.count == null ? null : BF.abSnap(Number(p.count));
+  };
+  if (typeof pa0 === 'function') p.patch = function () { return p._little ? null : pa0.apply(p, arguments); };
+  return p;
+};
+BF.acRow = function (p) {
+  var row = BF.el('div', 'bf-pills bf-ac-row');
+  p.el.appendChild(row);
+  return row;
+};
+
+/* Ate it / Used up and Cook it (they call amountPicker without "How much to move"). */
+var _bfAmountPickerAC = BF.amountPicker;
+BF.amountPicker = function (it, opts) {
+  var p = _bfAmountPickerAC.apply(this, arguments);
+  var legend = String((opts && opts.legend) || '');
+  if (/to move/i.test(legend)) return p;
+  if (p.mode === 'count') return BF.acAddLittle(p, BF.acRow(p));
+  var row = p.el.querySelector('.bf-pills');
+  if (row) return BF.acAddLittle(p, row);
+  return p;
+};
+var _bfZUsePickerAC = BF.zUsePicker;
+BF.zUsePicker = function (it, opts) {
+  var p = _bfZUsePickerAC.apply(this, arguments);
+  var byCount = it && it.count != null && Number(it.count) > 0;
+  if (byCount) return BF.acAddLittle(p, BF.acRow(p));
+  var row = p.el.querySelector('.bf-pills');
+  return row ? BF.acAddLittle(p, row) : p;
+};
+
+/* Ate it for one or a blank amount (All of it / Some left): a third button. */
+var _bfOpenAteItAC = BF.openAteIt;
+BF.openAteIt = function (id) {
+  var out = _bfOpenAteItAC.apply(this, arguments);
+  var it = BF.findItem(id);
+  var acts = document.querySelector('#bf-sheet-body .bf-ate-acts');
+  if (!it || !acts || acts.querySelector('.bf-ac-little-btn')) return out;
+  var btns = acts.querySelectorAll('button');
+  if (btns.length < 2) return out;   // the picker sheet: "A little" is a chip in "How much"
+  var use = BF.wUseMode && BF.wUseMode(it);
+  var b = BF.button(use ? 'Used a little' : 'Ate a little', 'bf-btn-wide bf-ac-little-btn');
+  b.addEventListener('click', function () {
+    var cur = BF.findItem(id) || it;
+    BF.ateSave(cur, { gone: false, used: 0, rem: null, location: cur.location || BF.locOf(cur), leftover: !!cur.leftover, little: true }, b);
+  });
+  acts.appendChild(b);
+  return out;
+};
+
+/* History: "\u00b7 a little" after the line. */
+var _bfHistoryRowAC = BF.historyRow;
+BF.historyRow = function (h) {
+  var row = _bfHistoryRowAC.apply(this, arguments);
+  if (h && h.data && h.data.little) {
+    var meta = row.querySelector('.bf-meta');
+    if (meta) meta.textContent = meta.textContent + ' \u00b7 a little (nothing taken off)';
+  }
+  return row;
 };
 
 BF.init();
