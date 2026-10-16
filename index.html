@@ -1324,7 +1324,7 @@ input.bf-ab-whole::placeholder { color: var(--bf-muted); }
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v40';
+var BF_VERSION = 'bf-v41';
 
 var BF = {
   sb: null,
@@ -18151,6 +18151,187 @@ BF.historyRow = function (h) {
     if (meta) meta.textContent = meta.textContent + ' \u00b7 a little (nothing taken off)';
   }
   return row;
+};
+
+
+/* ===================== batch AD (bf-v41): Diary lines merge ===================== */
+/* Why: one Ate it of 3 portions writes 3 bf_eaten rows (one per portion, by design), and the Diary
+   showed 3 identical lines. Now rows for the same Library entry at exactly the same eaten time show as
+   one line, "Name ×3"; Change time moves them together; calendar dots count lines, not portions.
+   Nothing in the database changes. This week / Most eaten still count portions.
+   BF.renderEatenReal is reassigned below with a copy of the bf-v30 one (the old copy above is left as it was). */
+
+/* Rows -> groups in time order: { e: first row, ids: [...], n }. Same entry (dish_id, else name) + same eaten_at. */
+BF.adGroups = function (rows) {
+  var sorted = (rows || []).slice().sort(function (a, b) { return BF.tsMs(a.eaten_at) - BF.tsMs(b.eaten_at); });
+  var byKey = {};
+  var out = [];
+  sorted.forEach(function (e) {
+    var who = e.dish_id ? 'd:' + e.dish_id : 'n:' + String(BF.eatenName(e) || '').trim().toLowerCase();
+    var key = who + '|' + BF.tsMs(e.eaten_at);
+    var g = byKey[key];
+    if (!g) { g = byKey[key] = { e: e, ids: [], n: 0 }; out.push(g); }
+    g.ids.push(e.id);
+    g.n++;
+  });
+  return out;
+};
+
+/* Change time for a merged line: the same sheet as BF.openChangeTime, every row of the group moves. */
+BF.adChangeTimeGroup = function (label, ids, eatenAt) {
+  var was = new Date(BF.tsMs(eatenAt) || Date.now());
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Change time'));
+    box.appendChild(BF.el('p', 'bf-hint bf-act-meta', String(label == null ? '' : label) + ' · now ' + BF.aLabel(was)));
+    var form = BF.el('div', 'bf-form');
+    var pick = BF.aTimePicker(was);
+    var fs = BF.el('fieldset', 'bf-fieldset');
+    fs.appendChild(BF.el('legend', 'bf-label', 'Eaten at'));
+    fs.appendChild(pick.el);
+    form.appendChild(fs);
+    var save = BF.button('Save', 'bf-btn-gold bf-btn-wide');
+    save.addEventListener('click', async function () {
+      var dt = pick.date();
+      if (!dt || pick.future()) { BF.shake(pick.el); return; }
+      var at = dt.toISOString();
+      var ok = await BF.sheetSave(save, async function () {
+        BF.q(await BF.sb.from('bf_eaten').update({ eaten_at: at }).in('id', ids));
+      });
+      if (ok) BF.toast('Time changed → ' + BF.aLabel(dt));
+    });
+    form.appendChild(save);
+    box.appendChild(form);
+  });
+};
+
+BF.renderEatenReal = function () {
+  var body = BF.$('bf-tab-eaten-body');
+  if (!body) return;
+  body.classList.add('bf-stack');
+  body.replaceChildren();
+  if (!BF.lib.loaded) {
+    if (BF.lib.error) body.appendChild(BF.emptyCard('Couldn\'t load what was eaten. Reopen the app to retry.'));
+    return;
+  }
+  var now = Date.now();
+  var rows = BF.lib.eaten || [];
+  var st = BF.eatenStats(rows, now);
+  var v = BF.eatenView;
+  var t = new Date(now);
+  if (v.y == null) { v.y = t.getFullYear(); v.m = t.getMonth(); }
+  if (!v.sel) v.sel = BF.ymd(t);
+
+  // dashboard
+  var dash = BF.el('div', 'bf-eat-dash');
+  var c1 = BF.el('section', 'bf-card bf-eat-card');
+  c1.appendChild(BF.el('h2', 'bf-eat-title', 'This week'));
+  c1.appendChild(BF.el('p', 'bf-eat-big', String(st.week)));
+  c1.appendChild(BF.el('p', 'bf-hint', st.week === 1 ? 'meal eaten' : 'meals eaten'));
+  dash.appendChild(c1);
+  var c2 = BF.el('section', 'bf-card bf-eat-card');
+  c2.appendChild(BF.el('h2', 'bf-eat-title', 'Most eaten'));
+  if (st.top.length) {
+    var ol = BF.el('ol', 'bf-eat-top');
+    st.top.forEach(function (x) {
+      var li = BF.el('li');
+      li.appendChild(BF.el('span', 'bf-eat-name', x.name));
+      li.appendChild(BF.el('span', 'bf-eat-n', '\u00d7' + x.n));
+      ol.appendChild(li);
+    });
+    c2.appendChild(ol);
+  } else c2.appendChild(BF.el('p', 'bf-hint', 'Nothing in the last 30 days.'));
+  c2.appendChild(BF.el('p', 'bf-hint bf-eat-sub', 'Last 30 days'));
+  dash.appendChild(c2);
+  body.appendChild(dash);
+
+  var wl = BF.whileList(now);
+  var c3 = BF.el('section', 'bf-card bf-eat-card');
+  c3.appendChild(BF.el('h2', 'bf-eat-title', 'Haven\'t had in a while'));
+  if (wl.length) {
+    var ul = BF.el('ul', 'bf-eat-while');
+    wl.forEach(function (x) {
+      var li = BF.el('li');
+      li.appendChild(BF.el('span', 'bf-eat-name', String(x.d.name == null ? '' : x.d.name)));
+      var dt = x.last != null ? new Date(x.last) : null;
+      li.appendChild(BF.el('span', 'bf-eat-last', dt ? 'last: ' + dt.getDate() + ' ' + BF.MONTHS[dt.getMonth()] : 'not yet'));
+      ul.appendChild(li);
+    });
+    c3.appendChild(ul);
+  } else c3.appendChild(BF.el('p', 'bf-hint', 'Everything in the house was eaten lately.'));
+  body.appendChild(c3);
+
+  // calendar
+  var perDay = {};
+  rows.forEach(function (e) {
+    var ms = BF.tsMs(e.eaten_at);
+    if (ms == null) return;
+    var k = BF.dayKey(ms);
+    (perDay[k] = perDay[k] || []).push(e);
+  });
+  var cal = BF.el('section', 'bf-card bf-cal');
+  var head = BF.el('div', 'bf-cal-head');
+  head.appendChild(BF.button('\u2039', 'bf-square bf-btn-ghost', function () { v.m--; if (v.m < 0) { v.m = 11; v.y--; } BF.renderEaten(); }, 'Previous month'));
+  head.appendChild(BF.el('h2', 'bf-cal-title', BF.MONTHS_LONG[v.m] + ' ' + v.y));
+  head.appendChild(BF.button('\u203a', 'bf-square bf-btn-ghost', function () { v.m++; if (v.m > 11) { v.m = 0; v.y++; } BF.renderEaten(); }, 'Next month'));
+  cal.appendChild(head);
+  var grid = BF.el('div', 'bf-cal-grid');
+  grid.setAttribute('role', 'grid');
+  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(function (w) { grid.appendChild(BF.el('span', 'bf-cal-wd', w)); });
+  var first = new Date(v.y, v.m, 1);
+  var lead = (first.getDay() + 6) % 7;
+  var days = new Date(v.y, v.m + 1, 0).getDate();
+  var today = BF.ymd(t);
+  for (var i = 0; i < lead; i++) grid.appendChild(BF.el('span', 'bf-cal-pad'));
+  for (var dnum = 1; dnum <= days; dnum++) {
+    (function (dn) {
+      var key = BF.ymd(new Date(v.y, v.m, dn));
+      var list = BF.adGroups(perDay[key] || []);
+      var b = BF.el('button', 'bf-cal-day' + (key === today ? ' is-today' : '') + (key === v.sel ? ' is-sel' : ''));
+      b.type = 'button';
+      b.setAttribute('aria-label', dn + ' ' + BF.MONTHS_LONG[v.m] + ': ' + BF.plural(list.length, 'meal', 'meals'));
+      if (key === v.sel) b.setAttribute('aria-pressed', 'true');
+      b.appendChild(BF.el('span', 'bf-cal-num', String(dn)));
+      var dots = BF.el('span', 'bf-cal-dots');
+      for (var k = 0; k < Math.min(3, list.length); k++) dots.appendChild(BF.el('span', 'bf-cal-dot'));
+      if (list.length > 3) dots.appendChild(BF.el('span', 'bf-cal-more', '+' + (list.length - 3)));
+      b.appendChild(dots);
+      b.addEventListener('click', function () { v.sel = key; BF.renderEaten(); });
+      grid.appendChild(b);
+    })(dnum);
+  }
+  cal.appendChild(grid);
+  body.appendChild(cal);
+
+  // the chosen day
+  var sp = v.sel.split('-');
+  var selDate = new Date(+sp[0], +sp[1] - 1, +sp[2]);
+  var dayCard = BF.el('section', 'bf-card bf-cal-dayview');
+  dayCard.appendChild(BF.el('h2', 'bf-eat-title', BF.shortDate(selDate)));
+  var items = BF.adGroups(perDay[v.sel] || []);
+  if (!items.length) dayCard.appendChild(BF.el('p', 'bf-hint', 'Nothing recorded.'));
+  else {
+    var rowsBox = BF.el('div', 'bf-rows');
+    items.forEach(function (g) {
+      var e = g.e;
+      var r = BF.el('div', 'bf-row');
+      var main = BF.el('div', 'bf-row-main');
+      var nm = BF.eatenName(e);
+      if (g.n > 1) nm = nm + ' \u00d7' + g.n;
+      main.appendChild(BF.el('div', 'bf-hist-name', nm));
+      var dt = new Date(BF.tsMs(e.eaten_at));
+      main.appendChild(BF.el('div', 'bf-meta', BF.pad2(dt.getHours()) + ':' + BF.pad2(dt.getMinutes())));
+      r.appendChild(main);
+      var acts = BF.el('div', 'bf-row-acts');
+      acts.appendChild(BF.button('Change time', 'bf-btn-sm bf-btn-ghost', function () {
+        if (g.n > 1) BF.adChangeTimeGroup(nm, g.ids, e.eaten_at);
+        else BF.openChangeTime({ id: null, label: nm, data: { eaten_id: e.id, eaten_at: e.eaten_at }, done_at: e.eaten_at });
+      }, 'Change when ' + nm + ' was eaten'));
+      r.appendChild(acts);
+      rowsBox.appendChild(r);
+    });
+    dayCard.appendChild(rowsBox);
+  }
+  body.appendChild(dayCard);
 };
 
 BF.init();
