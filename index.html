@@ -1324,7 +1324,7 @@ input.bf-ab-whole::placeholder { color: var(--bf-muted); }
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v41';
+var BF_VERSION = 'bf-v42';
 
 var BF = {
   sb: null,
@@ -18325,6 +18325,191 @@ BF.renderEatenReal = function () {
       acts.appendChild(BF.button('Change time', 'bf-btn-sm bf-btn-ghost', function () {
         if (g.n > 1) BF.adChangeTimeGroup(nm, g.ids, e.eaten_at);
         else BF.openChangeTime({ id: null, label: nm, data: { eaten_id: e.id, eaten_at: e.eaten_at }, done_at: e.eaten_at });
+      }, 'Change when ' + nm + ' was eaten'));
+      r.appendChild(acts);
+      rowsBox.appendChild(r);
+    });
+    dayCard.appendChild(rowsBox);
+  }
+  body.appendChild(dayCard);
+};
+
+
+/* ===================== batch AE (bf-v42): Diary — one line per dish per day ===================== */
+/* Why: the same dish eaten at different times on one day still showed as several lines.
+   Now the chosen day lists each dish once, with every time under the name ("13:14, 13:20");
+   calendar dots count dishes. Change time asks which time when there is more than one.
+   Nothing in the database changes; Fridge, Library, History, This week and Most eaten are untouched.
+   BF.renderEatenReal is reassigned below with a copy of the bf-v41 one (the copies above are left as they were). */
+
+/* One day's rows -> one group per dish, in order of first time: { e, ids, n, subs: BF.adGroups(...) }. */
+BF.aeDayGroups = function (rows) {
+  var byKey = {};
+  var out = [];
+  BF.adGroups(rows).forEach(function (sg) {
+    var e = sg.e;
+    var key = e.dish_id ? 'd:' + e.dish_id : 'n:' + String(BF.eatenName(e) || '').trim().toLowerCase();
+    var g = byKey[key];
+    if (!g) { g = byKey[key] = { e: e, ids: [], n: 0, subs: [] }; out.push(g); }
+    g.subs.push(sg);
+    g.ids = g.ids.concat(sg.ids);
+    g.n += sg.n;
+  });
+  return out;
+};
+BF.aeHm = function (ts) {
+  var dt = new Date(BF.tsMs(ts));
+  return BF.pad2(dt.getHours()) + ':' + BF.pad2(dt.getMinutes());
+};
+/* "13:14, 13:20" (the same minute shown once). */
+BF.aeTimes = function (g) {
+  var seen = {};
+  var out = [];
+  g.subs.forEach(function (sg) {
+    var t = BF.aeHm(sg.e.eaten_at);
+    if (!seen[t]) { seen[t] = 1; out.push(t); }
+  });
+  return out.join(', ');
+};
+/* Change time for one saved time of the dish (rows saved together move together). */
+BF.aeChangeSub = function (nm, sg) {
+  if (sg.n > 1) BF.adChangeTimeGroup(nm, sg.ids, sg.e.eaten_at);
+  else BF.openChangeTime({ id: null, label: nm, data: { eaten_id: sg.e.id, eaten_at: sg.e.eaten_at }, done_at: sg.e.eaten_at });
+};
+BF.aeChangeTime = function (nm, g) {
+  if (g.subs.length === 1) { BF.aeChangeSub(nm, g.subs[0]); return; }
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Change time'));
+    box.appendChild(BF.el('p', 'bf-hint bf-act-meta', String(nm == null ? '' : nm) + ' · which time?'));
+    var form = BF.el('div', 'bf-form');
+    g.subs.forEach(function (sg) {
+      form.appendChild(BF.button(BF.aeHm(sg.e.eaten_at), 'bf-btn-wide bf-btn-ghost', function () {
+        BF.closeSheet();
+        setTimeout(function () { BF.aeChangeSub(nm, sg); }, 0);
+      }, 'Change ' + nm + ' at ' + BF.aeHm(sg.e.eaten_at)));
+    });
+    box.appendChild(form);
+  });
+};
+
+BF.renderEatenReal = function () {
+  var body = BF.$('bf-tab-eaten-body');
+  if (!body) return;
+  body.classList.add('bf-stack');
+  body.replaceChildren();
+  if (!BF.lib.loaded) {
+    if (BF.lib.error) body.appendChild(BF.emptyCard('Couldn\'t load what was eaten. Reopen the app to retry.'));
+    return;
+  }
+  var now = Date.now();
+  var rows = BF.lib.eaten || [];
+  var st = BF.eatenStats(rows, now);
+  var v = BF.eatenView;
+  var t = new Date(now);
+  if (v.y == null) { v.y = t.getFullYear(); v.m = t.getMonth(); }
+  if (!v.sel) v.sel = BF.ymd(t);
+
+  // dashboard
+  var dash = BF.el('div', 'bf-eat-dash');
+  var c1 = BF.el('section', 'bf-card bf-eat-card');
+  c1.appendChild(BF.el('h2', 'bf-eat-title', 'This week'));
+  c1.appendChild(BF.el('p', 'bf-eat-big', String(st.week)));
+  c1.appendChild(BF.el('p', 'bf-hint', st.week === 1 ? 'meal eaten' : 'meals eaten'));
+  dash.appendChild(c1);
+  var c2 = BF.el('section', 'bf-card bf-eat-card');
+  c2.appendChild(BF.el('h2', 'bf-eat-title', 'Most eaten'));
+  if (st.top.length) {
+    var ol = BF.el('ol', 'bf-eat-top');
+    st.top.forEach(function (x) {
+      var li = BF.el('li');
+      li.appendChild(BF.el('span', 'bf-eat-name', x.name));
+      li.appendChild(BF.el('span', 'bf-eat-n', '\u00d7' + x.n));
+      ol.appendChild(li);
+    });
+    c2.appendChild(ol);
+  } else c2.appendChild(BF.el('p', 'bf-hint', 'Nothing in the last 30 days.'));
+  c2.appendChild(BF.el('p', 'bf-hint bf-eat-sub', 'Last 30 days'));
+  dash.appendChild(c2);
+  body.appendChild(dash);
+
+  var wl = BF.whileList(now);
+  var c3 = BF.el('section', 'bf-card bf-eat-card');
+  c3.appendChild(BF.el('h2', 'bf-eat-title', 'Haven\'t had in a while'));
+  if (wl.length) {
+    var ul = BF.el('ul', 'bf-eat-while');
+    wl.forEach(function (x) {
+      var li = BF.el('li');
+      li.appendChild(BF.el('span', 'bf-eat-name', String(x.d.name == null ? '' : x.d.name)));
+      var dt = x.last != null ? new Date(x.last) : null;
+      li.appendChild(BF.el('span', 'bf-eat-last', dt ? 'last: ' + dt.getDate() + ' ' + BF.MONTHS[dt.getMonth()] : 'not yet'));
+      ul.appendChild(li);
+    });
+    c3.appendChild(ul);
+  } else c3.appendChild(BF.el('p', 'bf-hint', 'Everything in the house was eaten lately.'));
+  body.appendChild(c3);
+
+  // calendar
+  var perDay = {};
+  rows.forEach(function (e) {
+    var ms = BF.tsMs(e.eaten_at);
+    if (ms == null) return;
+    var k = BF.dayKey(ms);
+    (perDay[k] = perDay[k] || []).push(e);
+  });
+  var cal = BF.el('section', 'bf-card bf-cal');
+  var head = BF.el('div', 'bf-cal-head');
+  head.appendChild(BF.button('\u2039', 'bf-square bf-btn-ghost', function () { v.m--; if (v.m < 0) { v.m = 11; v.y--; } BF.renderEaten(); }, 'Previous month'));
+  head.appendChild(BF.el('h2', 'bf-cal-title', BF.MONTHS_LONG[v.m] + ' ' + v.y));
+  head.appendChild(BF.button('\u203a', 'bf-square bf-btn-ghost', function () { v.m++; if (v.m > 11) { v.m = 0; v.y++; } BF.renderEaten(); }, 'Next month'));
+  cal.appendChild(head);
+  var grid = BF.el('div', 'bf-cal-grid');
+  grid.setAttribute('role', 'grid');
+  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(function (w) { grid.appendChild(BF.el('span', 'bf-cal-wd', w)); });
+  var first = new Date(v.y, v.m, 1);
+  var lead = (first.getDay() + 6) % 7;
+  var days = new Date(v.y, v.m + 1, 0).getDate();
+  var today = BF.ymd(t);
+  for (var i = 0; i < lead; i++) grid.appendChild(BF.el('span', 'bf-cal-pad'));
+  for (var dnum = 1; dnum <= days; dnum++) {
+    (function (dn) {
+      var key = BF.ymd(new Date(v.y, v.m, dn));
+      var list = BF.aeDayGroups(perDay[key] || []);
+      var b = BF.el('button', 'bf-cal-day' + (key === today ? ' is-today' : '') + (key === v.sel ? ' is-sel' : ''));
+      b.type = 'button';
+      b.setAttribute('aria-label', dn + ' ' + BF.MONTHS_LONG[v.m] + ': ' + BF.plural(list.length, 'meal', 'meals'));
+      if (key === v.sel) b.setAttribute('aria-pressed', 'true');
+      b.appendChild(BF.el('span', 'bf-cal-num', String(dn)));
+      var dots = BF.el('span', 'bf-cal-dots');
+      for (var k = 0; k < Math.min(3, list.length); k++) dots.appendChild(BF.el('span', 'bf-cal-dot'));
+      if (list.length > 3) dots.appendChild(BF.el('span', 'bf-cal-more', '+' + (list.length - 3)));
+      b.appendChild(dots);
+      b.addEventListener('click', function () { v.sel = key; BF.renderEaten(); });
+      grid.appendChild(b);
+    })(dnum);
+  }
+  cal.appendChild(grid);
+  body.appendChild(cal);
+
+  // the chosen day
+  var sp = v.sel.split('-');
+  var selDate = new Date(+sp[0], +sp[1] - 1, +sp[2]);
+  var dayCard = BF.el('section', 'bf-card bf-cal-dayview');
+  dayCard.appendChild(BF.el('h2', 'bf-eat-title', BF.shortDate(selDate)));
+  var items = BF.aeDayGroups(perDay[v.sel] || []);
+  if (!items.length) dayCard.appendChild(BF.el('p', 'bf-hint', 'Nothing recorded.'));
+  else {
+    var rowsBox = BF.el('div', 'bf-rows');
+    items.forEach(function (g) {
+      var e = g.e;
+      var r = BF.el('div', 'bf-row');
+      var main = BF.el('div', 'bf-row-main');
+      var nm = BF.eatenName(e);
+      main.appendChild(BF.el('div', 'bf-hist-name', nm));
+      main.appendChild(BF.el('div', 'bf-meta', BF.aeTimes(g)));
+      r.appendChild(main);
+      var acts = BF.el('div', 'bf-row-acts');
+      acts.appendChild(BF.button('Change time', 'bf-btn-sm bf-btn-ghost', function () {
+        BF.aeChangeTime(nm, g);
       }, 'Change when ' + nm + ' was eaten'));
       r.appendChild(acts);
       rowsBox.appendChild(r);
