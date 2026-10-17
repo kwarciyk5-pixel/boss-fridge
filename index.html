@@ -1324,7 +1324,7 @@ input.bf-ab-whole::placeholder { color: var(--bf-muted); }
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v42';
+var BF_VERSION = 'bf-v43';
 
 var BF = {
   sb: null,
@@ -18517,6 +18517,20 @@ BF.renderEatenReal = function () {
     dayCard.appendChild(rowsBox);
   }
   body.appendChild(dayCard);
+};
+
+
+/* ===================== batch AF (bf-v43): Diary — how many beside each time ===================== */
+/* "3 at 13:14, 1 at 13:20": portions saved at the same minute are added up. BF.aeTimes is reassigned (the bf-v42 one above is left as it was). */
+BF.aeTimes = function (g) {
+  var by = {};
+  var out = [];
+  g.subs.forEach(function (sg) {
+    var t = BF.aeHm(sg.e.eaten_at);
+    if (!by[t]) { by[t] = { t: t, n: 0 }; out.push(by[t]); }
+    by[t].n += sg.n;
+  });
+  return out.map(function (x) { return x.n + ' at ' + x.t; }).join(', ');
 };
 
 BF.init();
