@@ -1324,7 +1324,7 @@ input.bf-ab-whole::placeholder { color: var(--bf-muted); }
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v44';
+var BF_VERSION = 'bf-v45';
 
 var BF = {
   sb: null,
@@ -19005,6 +19005,125 @@ BF.openDishActions = function (id) {
   var out = _bfOpenDishActionsAG.apply(this, arguments);
   if (BF.findDish(id)) BF.agAddTake(function () { BF.agOpenDish(id); });
   return out;
+};
+
+/* ===================== batch AH (bf-v45): the choices are the sheet (stage 2) ===================== */
+/* Why: with Take… on top, the old Ate it / Used up, Cooked it into…, Move some… and Tossed it buttons said the same
+   things a second time. Now a Fridge item or a Boss minion opens straight onto "What happened?" — Eaten · Used ·
+   Fridge / Freezer / Storage · Into a dish · Bin. A tap opens the Take sheet with that choice already picked
+   (Into a dish goes straight to Cook it). Delete reads "Entered by mistake" (it still has Put back in History).
+   The Library's "We ate this" becomes Eaten / Used. Push expiry, Running low, Edit, Shop stay as they were. */
+
+(function () {
+  var css = document.createElement('style');
+  css.textContent = '.bf-ag-head { margin: 2px 0 6px; }\n' +
+    '.bf-ag-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 4px; }\n' +
+    '.bf-ag-grid .bf-btn { min-height: 48px; padding-left: 6px; padding-right: 6px; }';
+  document.head.appendChild(css);
+})();
+
+BF._agPreset = null;
+var _bfAgDefaultAH = BF.agDefault;
+BF.agDefault = function (cat) {
+  if (BF._agPreset) return BF._agPreset;
+  return _bfAgDefaultAH.apply(this, arguments);
+};
+BF.agWithPreset = function (dest, fn) {
+  BF._agPreset = dest || null;
+  try { return fn(); } finally { BF._agPreset = null; }
+};
+/* Open the Take sheet with a choice already picked; Into a dish goes straight to Cook it. */
+BF.agGo = function (id, dest) {
+  if (dest === 'dish') { BF.openCookIt({ itemId: id }); return; }
+  BF.agWithPreset(dest, function () { BF.agOpen(id); });
+};
+/* Library: which one (when there are several), then the Take sheet; none in the house -> Eaten / Used without stock. */
+BF.agGoDish = function (dishId, dest) {
+  var d = BF.findDish(dishId);
+  if (!d) return;
+  var its = BF.wStockOf(d);
+  if (its.length === 1) return BF.agGo(its[0].id, dest);
+  if (!its.length) return BF.agWithPreset(dest, function () { BF.agOpenNoStock(d.id); });
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', String(d.name)));
+    box.appendChild(BF.el('p', 'bf-hint bf-act-meta', 'Which one?'));
+    var list = BF.el('div', 'bf-card bf-rows bf-w-stock');
+    its.forEach(function (it) {
+      var b = BF.el('button', 'bf-stock-line bf-w-stock-line');
+      b.type = 'button';
+      b.appendChild(BF.el('span', 'bf-stock-text', BF.wItemText(it)));
+      if (it.leftover) b.appendChild(BF.el('span', 'bf-tag bf-tag-leftover', 'Leftover'));
+      b.addEventListener('click', function () { BF.closeSheet(); setTimeout(function () { BF.agGo(it.id, dest); }, 0); });
+      list.appendChild(b);
+    });
+    box.appendChild(list);
+  });
+};
+
+/* "What happened?" + one button per choice. */
+BF.agGrid = function (dests, primary, onPick) {
+  var wrap = BF.el('div', 'bf-ag-choices');
+  wrap.appendChild(BF.el('p', 'bf-label bf-ag-head', 'What happened?'));
+  var grid = BF.el('div', 'bf-ag-grid');
+  dests.forEach(function (o) {
+    var b = BF.button(o[1], o[0] === primary ? 'bf-btn-primary' : '', function () { BF.closeSheet(); setTimeout(function () { onPick(o[0]); }, 0); });
+    b.setAttribute('data-dest', o[0]);
+    grid.appendChild(b);
+  });
+  wrap.appendChild(grid);
+  return wrap;
+};
+BF.AH_OLD = ['Take…', 'Ate it / Used up', 'Used up / Use some', 'Ate it', 'Used up', 'Cooked it into…',
+  'Cooked it into something', 'Move some…', 'Tossed it', 'We ate this'];
+BF.agReplaceActions = function (grid, renameDelete) {
+  var list = document.querySelector('#bf-sheet-body .bf-act-list');
+  if (!list || list.querySelector('.bf-ag-choices')) return;
+  Array.prototype.forEach.call(list.querySelectorAll('button'), function (b) {
+    if (BF.AH_OLD.indexOf(b.textContent.trim()) >= 0) b.remove();
+    else if (renameDelete && b.textContent.trim() === 'Delete') {
+      b.textContent = 'Entered by mistake';
+      b.setAttribute('aria-label', 'Entered by mistake: remove it (Put back stays in History)');
+    }
+  });
+  Array.prototype.forEach.call(list.querySelectorAll('.bf-sheet-acts'), function (r) { if (!r.children.length) r.remove(); });
+  list.insertBefore(grid, list.firstChild);
+};
+BF.agItemGrid = function (id) {
+  var it = BF.findItem(id);
+  if (!it) return null;
+  var cat = BF.agCat(it);
+  return BF.agGrid(BF.agDests(cat, BF.locOf(it)), _bfAgDefaultAH(cat), function (dest) { BF.agGo(id, dest); });
+};
+var _bfOpenItemActionsAH = BF.openItemActions;
+BF.openItemActions = function (id) {
+  var out = _bfOpenItemActionsAH.apply(this, arguments);
+  var g = BF.agItemGrid(id);
+  if (g) BF.agReplaceActions(g, true);
+  return out;
+};
+var _bfOpenMinionAH = BF.openMinion;
+BF.openMinion = function (id) {
+  var out = _bfOpenMinionAH.apply(this, arguments);
+  var g = BF.agItemGrid(id);
+  if (g) BF.agReplaceActions(g, false);
+  return out;
+};
+var _bfOpenDishActionsAH = BF.openDishActions;
+BF.openDishActions = function (id) {
+  var out = _bfOpenDishActionsAH.apply(this, arguments);
+  var d = BF.findDish(id);
+  if (d) {
+    var cat = BF.catOf(d);
+    var dests = cat === 'household' ? [['use', 'Used']] : [['eat', 'Eaten'], ['use', 'Used']];
+    BF.agReplaceActions(BF.agGrid(dests, _bfAgDefaultAH(cat), function (dest) { BF.agGoDish(id, dest); }), false);
+  }
+  return out;
+};
+/* Today's plan / a matched swipe "Eat it", and anything else that asks to eat a Library entry. */
+BF.weAteThis = function (id) {
+  var d = BF.findDish(id);
+  if (!d) return;
+  return BF.agGoDish(id, _bfAgDefaultAH(BF.catOf(d)));
 };
 
 BF.init();
