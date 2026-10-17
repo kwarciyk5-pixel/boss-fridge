@@ -1324,7 +1324,7 @@ input.bf-ab-whole::placeholder { color: var(--bf-muted); }
 /* ===================== Boss Fridge - app shell (batch A) ===================== */
 var SUPABASE_URL = 'https://xljsiznknzrepvbwuiax.supabase.co';
 var SUPABASE_KEY = 'sb_publishable__bBgcqi4VfhIryjgI5w0VQ_hUHsambk';
-var BF_VERSION = 'bf-v43';
+var BF_VERSION = 'bf-v44';
 
 var BF = {
   sb: null,
@@ -18531,6 +18531,480 @@ BF.aeTimes = function (g) {
     by[t].n += sg.n;
   });
   return out.map(function (x) { return x.n + ' at ' + x.t; }).join(', ');
+};
+
+/* ===================== batch AG (bf-v44): the Take sheet — one way to log anything (stage 1, next to the old buttons) ===================== */
+/* Why: Ate it / Used up, Move some, Cooked it into, Tossed it and Ate a little each asked in their own way.
+   Every one of them is "take some of it out and put it somewhere". The Take sheet asks the same three things
+   for every row: How much · Where to (Eaten · Used · Fridge · Freezer · Storage · Into a dish · Bin) · When.
+   Eaten writes the Diary (one row per portion); Used never does — so milk or cashews can be either, by what you did.
+   Freezer -> Fridge becomes a Leftover that goes off in 3 days. Every History line reads "amount · From -> To · time"
+   and has Put back and Change time. Old buttons stay until stage 2. SQL: sql/bf-v44.sql (History action 'moved'). */
+
+BF.HISTORY_TEXT.moved = 'Moved';
+BF.AG_EPS = 0.005;
+
+/* ---------- plumbing: the chosen time and line text go onto the History row; Eaten / Used by what you picked ---------- */
+BF._agDoneAt = null;
+BF._agMeta = null;
+BF._agForce = null;
+BF.logHistory = async function (action, label, data) {
+  try {
+    var row = { action: action, label: String(label == null ? '' : label), data: Object.assign({}, data || {}) };
+    if (BF._agMeta) row.data.ag = BF._agMeta;
+    if (BF._agDoneAt) row.done_at = BF._agDoneAt;
+    var r = await BF.sb.from('bf_history').insert(row).select('id').single();
+    if (r.error) { console.warn('history not saved', r.error); return null; }
+    if (data && row.data.ag) data.ag = row.data.ag;
+    return r.data ? r.data.id : null;
+  } catch (e) {
+    console.warn('history not saved', e);
+    return null;
+  }
+};
+var _bfWUseModeAG = BF.wUseMode;
+BF.wUseMode = function (it) {
+  var f = BF._agForce;
+  if (f && it && it.id != null && String(it.id) === String(f.id)) return !!f.use;
+  return _bfWUseModeAG.apply(this, arguments);
+};
+BF.agWith = async function (ctx, fn) {
+  BF._agDoneAt = ctx.doneAt || null;
+  BF._agMeta = ctx.meta || null;
+  BF._agForce = ctx.force || null;
+  try { return await fn(); } finally { BF._agDoneAt = null; BF._agMeta = null; BF._agForce = null; }
+};
+
+/* ---------- what an item can do ---------- */
+BF.agCat = function (it) {
+  var d = it && it.dish_id != null ? BF.findDish(it.dish_id) : null;
+  return d ? BF.catOf(d) : 'meal';
+};
+BF.agDests = function (cat, from) {
+  var food = cat !== 'household';
+  var out = food ? [['eat', 'Eaten'], ['use', 'Used']] : [['use', 'Used']];
+  if (from != null) BF.LOCATIONS.forEach(function (l) { if (l[0] !== from) out.push([l[0], l[1]]); });
+  if (food && from != null) out.push(['dish', 'Into a dish']);
+  if (from != null) out.push(['bin', 'Bin']);
+  return out;
+};
+BF.agDefault = function (cat) { return cat === 'ingredient' || cat === 'household' ? 'use' : 'eat'; };
+BF.agIsPlace = function (v) { return BF.LOCATIONS.some(function (l) { return l[0] === v; }); };
+BF.agToText = function (v) {
+  if (v === 'eat') return 'Eaten';
+  if (v === 'use') return 'Used';
+  if (v === 'bin') return 'Bin';
+  return BF.locLabel(v);
+};
+/* Freezer -> Fridge: Leftover, goes off in 3 days (or sooner if it already says so). */
+BF.agThaw = function (old, from, to) {
+  if (from !== 'freezer' || to !== 'fridge') return {};
+  var d3 = BF.addDays(3);
+  var ex = old.expiry == null ? null : String(old.expiry).slice(0, 10);
+  return { leftover: true, expiry: ex && ex < d3 ? ex : d3 };
+};
+
+/* ---------- the How much picker: count (whole + fraction), g / ml, or none (All / Some) ---------- */
+BF.agAmount = function (it) {
+  var unit = BF.unitOf(it);
+  var count = it && it.count != null && isFinite(Number(it.count)) ? Number(it.count) : null;
+  var a = { el: BF.el('div', 'bf-ag-amount'), onChange: null, littleOk: true, someOk: true };
+  var st = { little: false, some: false };
+  var fire = function () { if (typeof a.onChange === 'function') a.onChange(); };
+  var fs = BF.el('fieldset', 'bf-fieldset');
+  fs.appendChild(BF.el('legend', 'bf-label', 'How much'));
+  a.el.appendChild(fs);
+  var chips = BF.el('div', 'bf-pills');
+  var chip = function (text, on) {
+    var b = BF.el('button', 'bf-pill', text);
+    b.type = 'button';
+    b.addEventListener('click', on);
+    chips.appendChild(b);
+    return b;
+  };
+  var mark = function (b, on) { b.classList.toggle('is-on', !!on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); };
+  var littleB, allB, someB, q = null, p = null;
+  if (!unit && count != null && count > 0) {
+    a.mode = 'count';
+    q = BF.abQty({ value: count <= 1 ? count : 1, max: count });
+    fs.appendChild(q.el);
+    allB = chip('All', function () { st.little = false; q.set(count); sync(); fire(); });
+    q.onChange = function () { st.little = false; sync(); fire(); };
+  } else if (unit && count != null && count > 0) {
+    a.mode = 'unit';
+    p = BF.amountPicker(it, { legend: 'How much to move' });
+    var leg = p.el.querySelector('legend');
+    if (leg) leg.remove();
+    fs.appendChild(p.el);
+    p.onChange = function () { st.little = false; sync(); fire(); };
+  } else {
+    a.mode = 'none';
+    allB = chip('All', function () { st.little = false; st.some = false; sync(); fire(); });
+    someB = chip('Some', function () { st.little = false; st.some = true; sync(); fire(); });
+  }
+  littleB = chip('A little', function () { st.little = !st.little; sync(); fire(); });
+  littleB.classList.add('bf-ac-little');
+  fs.appendChild(chips);
+  var sync = function () {
+    if (!a.littleOk) st.little = false;
+    if (!a.someOk) st.some = false;
+    littleB.hidden = !a.littleOk;
+    mark(littleB, st.little);
+    if (someB) { someB.hidden = !a.someOk; mark(someB, !st.little && st.some); }
+    if (allB) mark(allB, !st.little && (a.mode === 'none' ? !st.some : a.isAll()));
+    if (q) q.el.classList.toggle('bf-ac-is-little', st.little);
+    if (p) p.el.classList.toggle('bf-ac-is-little', st.little);
+  };
+  a.little = function () { return st.little; };
+  /* used: amount taken (null = all / some with no number); rem: what is left (null = unknown); gone: nothing left */
+  a.read = function () {
+    if (st.little) return { little: true, used: 0, rem: null, gone: false, text: 'a little' };
+    if (a.mode === 'count') {
+      var u = q.value();
+      if (u == null || u <= 0) return null;
+      var gone = u >= count - BF.AG_EPS;
+      return { used: gone ? count : u, rem: gone ? 0 : BF.abSnap(count - u), gone: gone, text: BF.amountWords(gone ? count : u, null) };
+    }
+    if (a.mode === 'unit') {
+      var uu = p.used();
+      if (uu == null) return null;
+      var all = p.isAll();
+      return { used: uu, rem: all ? 0 : p.rem(), gone: all, text: BF.amountWords(uu, unit) };
+    }
+    return st.some ? { used: null, rem: null, gone: false, text: 'some' } : { used: null, rem: null, gone: true, text: 'all' };
+  };
+  a.isAll = function () { var r = a.read(); return !!r && r.gone; };
+  a.sync = sync;
+  sync();
+  return a;
+};
+
+/* ---------- the Take sheet for an item ---------- */
+BF.agOpen = function (id) {
+  var it = BF.findItem(id);
+  if (!it) return;
+  var name = String(it.name == null ? '' : it.name);
+  var from = BF.locOf(it);
+  var cat = BF.agCat(it);
+  var dests = BF.agDests(cat, from);
+  var st = { to: BF.agDefault(cat), rest: from };
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', name));
+    box.appendChild(BF.el('p', 'bf-hint bf-act-meta', BF.wItemText(it)));
+    var form = BF.el('div', 'bf-form bf-ag');
+    var amt = BF.agAmount(it);
+    form.appendChild(amt.el);
+    var where = BF.pillGroup('Where to', dests, function () { return st.to; }, function (v) { st.to = v; });
+    where.classList.add('bf-ag-where');
+    form.appendChild(where);
+    var rest = BF.pillGroup('Rest goes to', [[from, 'Stays in ' + BF.locLabel(from).toLowerCase()]].concat(
+      BF.LOCATIONS.filter(function (l) { return l[0] !== from; })), function () { return st.rest; }, function (v) { st.rest = v; });
+    rest.classList.add('bf-ag-rest');
+    form.appendChild(rest);
+    var when = BF.whenField('When');
+    form.appendChild(when.el);
+    var dishNote = BF.el('p', 'bf-hint', 'Cook it opens next, with ' + name + ' ticked — pick the dish and how much you used there.');
+    form.appendChild(dishNote);
+    var go = BF.button('Save', 'bf-btn-primary bf-btn-wide bf-act-main');
+    form.appendChild(go);
+    var sync = function () {
+      var eatUse = st.to === 'eat' || st.to === 'use';
+      var dish = st.to === 'dish';
+      amt.littleOk = eatUse;
+      amt.someOk = eatUse;
+      amt.sync();
+      amt.el.hidden = dish;
+      dishNote.hidden = !dish;
+      when.el.hidden = !(eatUse || st.to === 'bin');
+      var r = amt.read();
+      rest.hidden = !eatUse || !r || r.gone || r.little;
+      go.textContent = dish ? 'Next: Cook it' : 'Save';
+      go.disabled = !dish && !r;
+    };
+    where._onChange = sync;
+    amt.onChange = sync;
+    sync();
+    go.addEventListener('click', function () {
+      if (go.disabled) return;
+      if (st.to === 'dish') { BF.closeSheet(); setTimeout(function () { BF.openCookIt({ itemId: it.id }); }, 0); return; }
+      var r = amt.read();
+      if (!r) return;
+      var at = null;
+      if (!when.el.hidden) {
+        try { at = when.value(); } catch (e) { return; }
+      }
+      var cur = BF.findItem(it.id) || it;
+      BF.agSave(cur, st, r, at, go);
+    });
+    box.appendChild(form);
+  });
+};
+
+BF.agSave = async function (it, st, r, at, btn) {
+  var from = BF.locOf(it);
+  var meta = { amt: r.text, from: BF.locLabel(from), to: BF.agToText(st.to) };
+  if (st.to === 'eat' || st.to === 'use') {
+    var o;
+    if (r.little) o = { gone: false, used: 0, rem: null, location: from, leftover: !!it.leftover, little: true };
+    else {
+      var to = r.gone ? from : st.rest;
+      var thaw = BF.agThaw(it, from, to);
+      o = { gone: r.gone, used: r.used, rem: r.gone ? 0 : r.rem, location: to, leftover: !!thaw.leftover || !!it.leftover };
+      if (!r.gone && to !== from) meta.rest = BF.locLabel(to);
+    }
+    o.when = at;
+    return BF.agWith({ doneAt: at, meta: meta, force: { id: it.id, use: st.to === 'use' } }, function () {
+      return Promise.resolve(BF.ateSave(it, o, btn));
+    });
+  }
+  if (BF.agIsPlace(st.to)) return BF.agMoveSave(it, st.to, r, meta, btn);
+  if (st.to === 'bin') return BF.agBinSave(it, r, at, meta, btn);
+};
+
+/* Fridge / Freezer / Storage: all of it moves, or a part is split off. History "moved"; Put back restores it exactly. */
+BF.agMoveSave = async function (it, to, r, meta, btn) {
+  var old = Object.assign({}, it);
+  var name = String(old.name == null ? '' : old.name);
+  var from = BF.locOf(old);
+  var thaw = BF.agThaw(old, from, to);
+  var h = { id: null, action: 'moved', label: name, data: { restore: old, created_item_ids: [], from: from, to: to } };
+  var ok = await BF.sheetSave(btn, async function () {
+    if (r.gone) {
+      BF.q(await BF.sb.from('bf_items').update(Object.assign({ location: to }, thaw)).eq('id', old.id));
+    } else {
+      BF.q(await BF.sb.from('bf_items').update({ count: r.rem }).eq('id', old.id));
+      var c = BF.q(await BF.sb.from('bf_items').insert({
+        name: old.name, dish_id: old.dish_id == null ? null : old.dish_id, ready: !!old.ready,
+        leftover: thaw.leftover ? true : !!old.leftover, unit: BF.unitOf(old), notes: old.notes == null ? null : old.notes,
+        expiry: thaw.expiry ? thaw.expiry : (old.expiry == null ? null : old.expiry),
+        added_at: old.added_at, location: to, count: r.used
+      }).select('id').single());
+      if (c) h.data.created_item_ids.push(c.id);
+    }
+    await BF.agWith({ meta: meta }, async function () { h.id = await BF.logHistory('moved', name, h.data); });
+  });
+  if (ok === false) return;
+  var what = r.gone ? name : r.text + ' of ' + name;
+  BF.toast('Moved ' + what + ' → ' + BF.locLabel(to).toLowerCase() + (thaw.leftover ? ' · leftover, 3 days' : ''), function () { BF.putBack(h); });
+};
+
+/* Bin: all of it, or a part. History "Tossed" at the chosen time. */
+BF.agBinSave = async function (it, r, at, meta, btn) {
+  var old = Object.assign({}, it);
+  var name = String(old.name == null ? '' : old.name);
+  var h = { id: null, action: 'tossed', label: name, data: { restore: old, partial: !r.gone } };
+  var ok = await BF.sheetSave(btn, async function () {
+    if (r.gone) BF.q(await BF.sb.from('bf_items').delete().eq('id', old.id));
+    else BF.q(await BF.sb.from('bf_items').update({ count: r.rem }).eq('id', old.id));
+    await BF.agWith({ doneAt: at, meta: meta }, async function () { h.id = await BF.logHistory('tossed', name, h.data); });
+  });
+  if (ok === false) return;
+  BF.toast('Tossed ' + (r.gone ? name : r.text + ' of ' + name), function () { BF.putBack(h); });
+};
+
+/* ---------- Library: Take from what's in the house, or (none in the house) Eaten / Used without stock ---------- */
+BF.agOpenDish = function (dishId) {
+  var d = BF.findDish(dishId);
+  if (!d) return;
+  var its = BF.wStockOf(d);
+  if (its.length === 1) return BF.agOpen(its[0].id);
+  if (its.length > 1) {
+    BF.openSheet(function (box) {
+      box.appendChild(BF.el('h2', 'bf-sheet-title', String(d.name)));
+      box.appendChild(BF.el('p', 'bf-hint bf-act-meta', 'Which one?'));
+      var list = BF.el('div', 'bf-card bf-rows bf-w-stock');
+      its.forEach(function (it) {
+        var b = BF.el('button', 'bf-stock-line bf-w-stock-line');
+        b.type = 'button';
+        b.appendChild(BF.el('span', 'bf-stock-text', BF.wItemText(it)));
+        if (it.leftover) b.appendChild(BF.el('span', 'bf-tag bf-tag-leftover', 'Leftover'));
+        b.addEventListener('click', function () { BF.closeSheet(); setTimeout(function () { BF.agOpen(it.id); }, 0); });
+        list.appendChild(b);
+      });
+      box.appendChild(list);
+    });
+    return;
+  }
+  return BF.agOpenNoStock(d.id);
+};
+BF.agOpenNoStock = function (dishId) {
+  var d = BF.findDish(dishId);
+  if (!d) return;
+  var name = String(d.name == null ? '' : d.name);
+  var cat = BF.catOf(d);
+  var st = { to: BF.agDefault(cat) };
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', name));
+    box.appendChild(BF.el('p', 'bf-hint bf-act-meta', 'None in the house — nothing comes off the stock.'));
+    var form = BF.el('div', 'bf-form bf-ag');
+    var fs = BF.el('fieldset', 'bf-fieldset');
+    fs.appendChild(BF.el('legend', 'bf-label', 'How much'));
+    var q = BF.abQty({ value: 1 });
+    fs.appendChild(q.el);
+    form.appendChild(fs);
+    form.appendChild(BF.pillGroup('Where to', BF.agDests(cat, null), function () { return st.to; }, function (v) { st.to = v; }));
+    var when = BF.whenField('When');
+    form.appendChild(when.el);
+    var go = BF.button('Save', 'bf-btn-primary bf-btn-wide bf-act-main');
+    q.onChange = function () { go.disabled = !(q.value() > 0); };
+    go.addEventListener('click', function () {
+      var n = q.value();
+      if (!(n > 0)) return;
+      var at;
+      try { at = when.value(); } catch (e) { return; }
+      BF.agNoStockSave(d, st.to, n, at, go);
+    });
+    form.appendChild(go);
+    box.appendChild(form);
+  });
+};
+BF.agNoStockSave = async function (d, to, n, at, btn) {
+  var name = String(d.name == null ? '' : d.name);
+  var meta = { amt: BF.amountWords(n, null), from: 'No stock', to: BF.agToText(to) };
+  var eat = to === 'eat';
+  var h = { id: null, action: eat ? 'ate_dish' : 'used_up', label: name, data: { dish_id: d.id, nostock: true, used: n, eaten_id: null, eaten_ids: [] } };
+  var ok = await BF.sheetSave(btn, async function () {
+    if (eat) {
+      var rows = [];
+      var portions = Math.max(1, Math.ceil(n - 0.001));
+      for (var i = 0; i < portions; i++) {
+        var row = { item_name: name, dish_id: d.id };
+        if (at) row.eaten_at = at;
+        rows.push(row);
+      }
+      var made = BF.q(await BF.sb.from('bf_eaten').insert(rows).select('id')) || [];
+      h.data.eaten_ids = made.map(function (e) { return e.id; });
+      h.data.eaten_id = h.data.eaten_ids.length ? h.data.eaten_ids[0] : null;
+      if (at) h.data.eaten_at = at;
+    }
+    await BF.agWith({ doneAt: at, meta: meta }, async function () { h.id = await BF.logHistory(h.action, name, h.data); });
+  });
+  if (ok === false) return;
+  BF.toast((eat ? 'Ate ' : 'Used ') + BF.amountWords(n, null) + ' ' + name, function () { BF.putBack(h); });
+};
+
+/* ---------- Put back for the new rows ---------- */
+var _bfPutBackAG = BF.putBack;
+BF.putBack = async function (h) {
+  var d = h && h.data;
+  if (!h || !d) return _bfPutBackAG.apply(this, arguments);
+  if (d.nostock && (h.action === 'ate_dish' || h.action === 'used_up')) {
+    var ok = await BF.run(async function () {
+      var ids = (Array.isArray(d.eaten_ids) ? d.eaten_ids : []).filter(function (x) { return x != null; });
+      if (d.eaten_id != null && ids.indexOf(d.eaten_id) < 0) ids.push(d.eaten_id);
+      if (ids.length) BF.q(await BF.sb.from('bf_eaten').delete().in('id', ids));
+      if (h.id != null) BF.q(await BF.sb.from('bf_history').delete().eq('id', h.id));
+    });
+    if (ok) BF.toast('Undone – ' + String(h.label == null ? '' : h.label));
+    return ok;
+  }
+  if ((h.action === 'moved' || h.action === 'tossed') && d.restore && d.restore.id != null) {
+    return _bfPutBackAG.call(this, Object.assign({}, h, { action: 'ate' }));
+  }
+  return _bfPutBackAG.apply(this, arguments);
+};
+
+/* ---------- Change time: every eaten row of the line moves; the History row's time follows ---------- */
+BF.openChangeTime = function (h) {
+  var d = h.data || {};
+  var ids = (Array.isArray(d.eaten_ids) ? d.eaten_ids : []).filter(function (x) { return x != null; });
+  if (d.eaten_id != null && ids.indexOf(d.eaten_id) < 0) ids.push(d.eaten_id);
+  var was = new Date(BF.tsMs(ids.length ? (d.eaten_at || h.done_at) : (h.done_at || d.eaten_at)) || Date.now());
+  BF.openSheet(function (box) {
+    box.appendChild(BF.el('h2', 'bf-sheet-title', 'Change time'));
+    box.appendChild(BF.el('p', 'bf-hint bf-act-meta', String(h.label == null ? '' : h.label) + ' · now ' + BF.aLabel(was)));
+    var form = BF.el('div', 'bf-form');
+    var pick = BF.aTimePicker(was);
+    var fs = BF.el('fieldset', 'bf-fieldset');
+    fs.appendChild(BF.el('legend', 'bf-label', ids.length ? 'Eaten at' : 'When'));
+    fs.appendChild(pick.el);
+    form.appendChild(fs);
+    var save = BF.button('Save', 'bf-btn-gold bf-btn-wide');
+    save.addEventListener('click', async function () {
+      var dt = pick.date();
+      if (!dt || pick.future()) { BF.shake(pick.el); return; }
+      var at = dt.toISOString();
+      var data = ids.length ? Object.assign({}, d, { eaten_at: at }) : d;
+      var ok = await BF.sheetSave(save, async function () {
+        if (ids.length) BF.q(await BF.sb.from('bf_eaten').update({ eaten_at: at }).in('id', ids));
+        if (h.id != null) BF.q(await BF.sb.from('bf_history').update({ data: data, done_at: at }).eq('id', h.id));
+      });
+      if (ok) { h.data = data; h.done_at = at; BF.toast('Time changed → ' + BF.aLabel(dt)); }
+    });
+    form.appendChild(save);
+    box.appendChild(form);
+  });
+};
+
+/* ---------- History lines: "½ · Fridge -> Eaten · Sat 17 Oct, 7:30 pm"; Put back and Change time on every line ---------- */
+BF.agLine = function (ag) {
+  var s = (ag.amt ? ag.amt + ' · ' : '') + ag.from + ' → ' + ag.to;
+  if (ag.rest) s += ' · rest → ' + ag.rest;
+  return s;
+};
+var _bfHistoryRowAG = BF.historyRow;
+BF.historyRow = function (h) {
+  var row = _bfHistoryRowAG.apply(this, arguments);
+  if (!h) return row;
+  var d = h.data || {};
+  var meta = row.querySelector('.bf-meta');
+  if (d.ag && meta) {
+    var what = BF.HISTORY_TEXT[h.action] || String(h.action || '');
+    var ago = BF.ago(h.done_at);
+    var t = meta.textContent;
+    var i = t.indexOf(what);
+    t = i >= 0 ? t.slice(0, i) + BF.agLine(d.ag) + t.slice(i + what.length) : BF.agLine(d.ag) + ' · ' + t;
+    if (ago && h.done_at) t = t.replace(ago, BF.aLabel(new Date(BF.tsMs(h.done_at))));
+    meta.textContent = t;
+  }
+  var acts = row.querySelector('.bf-row-acts');
+  var has = function (txt) { return !!acts && Array.prototype.some.call(acts.querySelectorAll('button'), function (b) { return b.textContent === txt; }); };
+  var need = function () { if (!acts) { acts = BF.el('div', 'bf-row-acts'); row.appendChild(acts); } };
+  var label = String(h.label == null ? '' : h.label);
+  if (['moved', 'tossed', 'ate_dish', 'used_up'].indexOf(h.action) >= 0 && !has('Put back')) {
+    need();
+    acts.appendChild(BF.button('Put back', 'bf-btn-sm', function (e) {
+      e.currentTarget.disabled = true;
+      BF.closeSheet();
+      BF.putBack(h);
+    }, 'Put back ' + label));
+  }
+  if (['ate', 'ate_dish', 'used_up', 'tossed', 'moved', 'cooked'].indexOf(h.action) >= 0 && !has('Change time')) {
+    need();
+    acts.insertBefore(BF.button('Change time', 'bf-btn-sm bf-btn-ghost', function () { BF.openChangeTime(h); },
+      'Change when ' + label + ' happened'), acts.firstChild);
+  }
+  return row;
+};
+
+/* ---------- "Take…" at the top of the Fridge item, Boss minion and Library sheets ---------- */
+BF.agTakeButton = function (fn) {
+  var b = BF.button('Take…', 'bf-btn-gold bf-btn-wide bf-ag-take', function () { BF.closeSheet(); setTimeout(fn, 0); });
+  b.setAttribute('aria-label', 'Take: how much, where to, when');
+  return b;
+};
+BF.agAddTake = function (fn) {
+  var list = document.querySelector('#bf-sheet-body .bf-act-list');
+  if (!list || list.querySelector('.bf-ag-take')) return;
+  list.insertBefore(BF.agTakeButton(fn), list.firstChild);
+};
+var _bfOpenItemActionsAG = BF.openItemActions;
+BF.openItemActions = function (id) {
+  var out = _bfOpenItemActionsAG.apply(this, arguments);
+  if (BF.findItem(id)) BF.agAddTake(function () { BF.agOpen(id); });
+  return out;
+};
+var _bfOpenMinionAG = BF.openMinion;
+BF.openMinion = function (id) {
+  var out = _bfOpenMinionAG.apply(this, arguments);
+  if (BF.findItem(id)) BF.agAddTake(function () { BF.agOpen(id); });
+  return out;
+};
+var _bfOpenDishActionsAG = BF.openDishActions;
+BF.openDishActions = function (id) {
+  var out = _bfOpenDishActionsAG.apply(this, arguments);
+  if (BF.findDish(id)) BF.agAddTake(function () { BF.agOpenDish(id); });
+  return out;
 };
 
 BF.init();
